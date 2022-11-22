@@ -43,7 +43,7 @@ def click_event(event, x, y, flags, params):
                 line["y2"] = points[1][1]
                 print(line)
                 json_object = json.dumps(line, indent=4)
-                with open("entry_line_config.json", "w") as outfile:
+                with open("configs/entry_line_config.json", "w") as outfile:
                     outfile.write(json_object)
                 
 
@@ -56,7 +56,7 @@ def get_points_2orthogonalplane():
 
 
 if __name__ == "__main__":
-    file_name = "sample.png"
+    file_name = "tools/UI/sample.png"
     line_color = (0, 255, 0)
     line_thickness = 9
 

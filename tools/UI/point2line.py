@@ -21,7 +21,7 @@ import json
 
 def read_entry_line_config():
     # Opening JSON file
-    with open('entry_line_config.json', 'r') as openfile:
+    with open('configs/entry_line_config.json', 'r') as openfile:
         # Reading from json file
         j = json.load(openfile)
     print(j)
