@@ -1,3 +1,5 @@
 .gitignore
+temp/
 yolov7/
 deep-person-reid/
+

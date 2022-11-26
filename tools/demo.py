@@ -28,6 +28,14 @@ from yolov7.utils.torch_utils import select_device, load_classifier, time_synchr
 from tracker.byte_tracker import BYTETracker
 from tracker.tracking_utils.timer import Timer
 
+from id_assigner.id_assigner import IDAssigner
+
+def get_centroid(tlbr):
+  print(tlbr)
+  w = int(tlbr[3]-tlbr[1])
+  h = int(tlbr[2] - tlbr[0])
+  return (int(tlbr[0] + h/2), int(tlbr[1] + w/2))
+
 # Start Code
 def main():
     save_img = not opt.nosave and not opt.source.endswith(".txt")
@@ -80,6 +88,9 @@ def main():
         frame_rate = 30.0
     )
 
+    # ID Assigner Inisialization
+    id_assigner = IDAssigner(opt.entry_line_config)
+
     # Start Detection and Tracking
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
@@ -111,6 +122,7 @@ def main():
 
         #tracking
         results = []
+        
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
@@ -128,38 +140,45 @@ def main():
                 detections,
                 im0
             )
-            print(len(boxes))
-            print(boxes[0])
-            print(len(online_targets))
+            # print(len(boxes))
+            # print(boxes[0])
+            # print(len(online_targets))
 
             online_tlwhs = []
             online_ids = []
             online_scores = []
 
-
-            for t in online_targets:
-                tlwh = t.tlwh
-                tlbr = t.tlbr
-                tid = t.track_id
-
+            hoho = 0
+            a, b = id_assigner.register_ids(im0 = im0, ot = online_targets)
+            for i in range(len(online_targets)):
+                # print(t.idassigner_id(hoho))
+                tlwh = online_targets[i].tlwh
+                tlbr = online_targets[i].tlbr
+                tid = online_targets[i].track_id
+                c = get_centroid(tlbr)
+                # print(f"{tid}-{c}")
+                hoho += 1
+                
+                
                 
 
                 if tlwh[2] * tlwh[3] > opt.min_box_area:
                     online_tlwhs.append(tlwh)
                     online_ids.append(tid)
-                    online_scores.append(t.score)
+                    online_scores.append(online_targets[i].score)
                     
                     #save results
                     results.append(
-                        f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
+                        f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
                     )
 
                     if save_img or view_img:  # Add bbox to image
                         if opt.hide_labels_name:
-                            label = f'{tid}'
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
                         else:
-                            label = f'{tid}'
-                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=2)
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+                        cv2.circle(im0, c, radius=3, color=(0, 0, 255), thickness=3)
+                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             p = Path(p)
             save_path = str(save_dir / p.name)
 
@@ -233,6 +252,8 @@ if __name__ == "__main__":
     parser.add_argument('--min_box_area', type=float, default=10, help='filter out tiny boxes')
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
+    # ID Assigner Parser
+    parser.add_argument('--entry_line_config', nargs='+', type=str, default='configs/entry_line_config.json', help='entry line config path')
     opt = parser.parse_args()
     print(opt)
 

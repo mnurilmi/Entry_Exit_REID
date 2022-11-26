@@ -43,7 +43,7 @@ def click_event(event, x, y, flags, params):
                 line["y2"] = points[1][1]
                 print(line)
                 json_object = json.dumps(line, indent=4)
-                with open("configs/entry_line_config.json", "w") as outfile:
+                with open("configs/entry_line_config2.json", "w") as outfile:
                     outfile.write(json_object)
                 
 
