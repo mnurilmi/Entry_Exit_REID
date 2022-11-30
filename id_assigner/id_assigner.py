@@ -21,15 +21,19 @@ import math
 import time
 import json
 import cv2
+import sys
+import uuid
+import glob
+import os
+# sys.append("")
+# sys.append(".")
+# import torchreid
+# from torchreid.utils import FeatureExtractor
 
-class track(object):
-    # def __init__(self, tlbr):
-    #     self.centroid = calculate_centroid(tlbr)
-    pass
 
 class IDAssigner(object):
 
-    def __init__(self, entry_line_config, distance_treshold = 10):
+    def __init__(self, entry_line_config, distance_treshold = 10, reid_model_name = "osnet_x1_0", reid_model_path = 'models/model.pth.tar-60'):
         self.last_id = 0
         self.ids = []
         self.centroids = []
@@ -37,25 +41,39 @@ class IDAssigner(object):
         self.distance_treshold = distance_treshold
         self.entry_line_coef = self.calculate_line_coef(entry_line_config)
         print("HOOHOHO")
-        # Inisialisasi model
+        # # Inisialisasi model
+        # self.feat_extractor = FeatureExtractor(
+        #     model_name = reid_model_name,
+        #     model_path = reid_model_path,
+        #     device='cuda'
+        # )
+        files = glob.glob('temp/*')
+        for f in files:
+            os.remove(f)
+        print("berhasil reset folder")
     
     def register_ids(self, im0, ot):
         """
         Steps:
         - kalkulasi centroids dan hitung jarak ke entry line
         - tentuin state
-        -jika menyentuh garis pada treshold tertentu maka ekstrasi fitur
         """
-        print(self.x)
-        print(self.y)
+        im1 = im0.copy()
+        # print(self.x)
+        # print(self.y)
         cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),3)
         tlbrs = [t.tlbr for t in ot]
+
+        # H, W, _ = np.shape(im0)
+        # print(H, W)
+        patches = [self.extract_patch(im1, tlbr) for tlbr in tlbrs]
+        # print(patches)
+
         self.centroids = self.calculate_centroids(tlbrs)
         self.distances = self.calculate_distance2line(self.centroids, self.entry_line_coef)
-        
-        print("D:", self.distances)
+        # print("D:", self.distances)
         self.tracks_passed = self.check_passed_the_line()
-        print(self.tracks_passed)
+        # print(self.tracks_passed)
         return self.distances, self.tracks_passed
 
     def check_passed_the_line(self):
@@ -118,3 +136,28 @@ class IDAssigner(object):
         x = np.array([[coef[0]],[-1]])
         # print(x.shape)
         return ((np.dot(points, x)+coef[1]) * (1/math.sqrt((coef[0]*coef[0])+1))).flatten()
+
+    # =====REID=====
+    def extract_patch(self, img, tlbr):
+        # print(tlbr)
+        # print(img.shape)
+        tlbr[0] = (max(0, tlbr[0]))
+        tlbr[1] = (max(0, tlbr[1]))
+        tlbr[2] = (min(img.shape[1] - 1, tlbr[2])) # relatif terhadap W
+        tlbr[3] = (min(img.shape[0] - 1, tlbr[3])) # relatif terhadap H
+        # print(tlbr)
+        patch = img[
+            int(tlbr[1]):int(tlbr[3]),
+            int(tlbr[0]):int(tlbr[2])
+        ]
+        patch = cv2.resize(patch, (128, 256))
+        # print(type())
+        cv2.imwrite("temp/{0}.jpg".format(uuid.uuid4()), patch)
+        print(len(glob.glob("temp/*")))
+        # print(patch)
+          
+        # return cv2.resize(patch, (128, 256))
+
+    # def extract_feature(self, patches):
+    #     features = self.feat_extractor(patches)
+    #     print(features)

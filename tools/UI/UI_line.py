@@ -4,12 +4,7 @@ import numpy as np
 import json
 
 points = []
-line = {
-    "x1":0,
-    "y1":0,
-    "x2":0,
-    "y2":0,
-}
+line = {}
 # function to display the coordinates of
 # of the points clicked on the image
 def click_event(event, x, y, flags, params):
@@ -37,6 +32,8 @@ def click_event(event, x, y, flags, params):
                 #Line 1
                 # print(points)
                 cv2.line(new_img, (points[0][0],points[0][1]), (points[1][0],points[1][1]), line_color, line_thickness)
+                line["img_h"] = h
+                line["img_w"] = w
                 line["x1"] = points[0][0]
                 line["y1"] = points[0][1]
                 line["x2"] = points[1][0]
@@ -54,9 +51,8 @@ def click_event(event, x, y, flags, params):
 def get_points_2orthogonalplane():
     return [[], []]
 
-
 if __name__ == "__main__":
-    file_name = "tools/UI/sample.png"
+    file_name = "tools/UI/first_frame.jpg"
     line_color = (0, 255, 0)
     line_thickness = 9
 
@@ -65,6 +61,7 @@ if __name__ == "__main__":
     h, w, c = img.shape
     x_min, y_min = 0, 0
     x_max, y_max = w, h
+    print(w, h)
     p1 = (0, 0)
     p2 = (100,100)
 

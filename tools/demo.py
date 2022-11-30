@@ -90,7 +90,7 @@ def main():
 
     # ID Assigner Inisialization
     id_assigner = IDAssigner(opt.entry_line_config)
-
+    
     # Start Detection and Tracking
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
@@ -129,6 +129,7 @@ def main():
             else:
                 p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
 
+            im1 = im0
             detections = []
             if len(det):
                 boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
@@ -149,9 +150,9 @@ def main():
             online_scores = []
 
             hoho = 0
-            a, b = id_assigner.register_ids(im0 = im0, ot = online_targets)
+            a, b = id_assigner.register_ids(im0, ot = online_targets)
             for i in range(len(online_targets)):
-                # print(t.idassigner_id(hoho))
+                # print(online_targets[i].idassigner_id(hoho))
                 tlwh = online_targets[i].tlwh
                 tlbr = online_targets[i].tlbr
                 tid = online_targets[i].track_id
@@ -253,7 +254,7 @@ if __name__ == "__main__":
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
     # ID Assigner Parser
-    parser.add_argument('--entry_line_config', nargs='+', type=str, default='configs/entry_line_config.json', help='entry line config path')
+    parser.add_argument('--entry_line_config', type=str, default='configs/entry_line_config2.json', help='entry line config path')
     opt = parser.parse_args()
     print(opt)
 

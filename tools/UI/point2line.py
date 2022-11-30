@@ -21,12 +21,12 @@ import json
 
 def read_entry_line_config():
     # Opening JSON file
-    with open('configs/entry_line_config.json', 'r') as openfile:
+    with open('configs/entry_line_config2.json', 'r') as openfile:
         # Reading from json file
         j = json.load(openfile)
     print(j)
     print(type(j["x1"]))
-    return [float(j["x1"]), float(j["y1"])], [float(j["x2"]), float(j["y2"])]
+    return (int(j["img_h"]), int(j["img_w"])), [float(j["x1"]), float(j["y1"])], [float(j["x2"]), float(j["y2"])]
     # return [1000, 0], [0, 1000]
     # return [695, 232], [987, 1000]
 
@@ -59,7 +59,7 @@ def distance_points2line(points, coef):
     # print(x.shape)
     return ((np.dot(points, x)+coef[1]) * (1/math.sqrt((coef[0]*coef[0])+1))).flatten()
 
-def visualize(p1, p2, centroids, distance, coefficients):
+def visualize(img_shape, p1, p2, centroids, distance, coefficients):
     x = [p1[0], p2[0]]
     y = [p1[1], p2[1]]
     y = [-1 * i for i in y]
@@ -83,15 +83,15 @@ def visualize(p1, p2, centroids, distance, coefficients):
     #     i+=10
     x_axis = np.linspace(0,2560)
     y_axis = polynomial(x_axis)
-
+    print("sasa", img_shape)
     px = 1/plt.rcParams['figure.dpi']  # pixel in inches
     plt.subplots(figsize=(1440*px, 2560*px))
-    plt.text(0.5, 0.5, '2560px x 1440px')
+    plt.text(0.5, 0.5, f'{img_shape[1]}px x {img_shape[0]}')
     plt.plot(x_axis, y_axis)
     plt.plot( x[0], y[0], 'go' )
     plt.plot( x[1], y[1], 'go' )
-    plt.xlim([0, 2560])
-    plt.ylim([-1440, 0])
+    plt.xlim([0, img_shape[1]])
+    plt.ylim([-img_shape[0], 0])
     
     for i in range(len(centroids)):
         plt.plot(centroids[i][0], -1 * centroids[i][1], marker="o", markersize=10, markeredgecolor="red", markerfacecolor="green")
@@ -129,8 +129,8 @@ if __name__ == "__main__":
         [2000, 0]
     ]
     #Definisi garis dari titik p1 dan p2
-    p1, p2 = read_entry_line_config()
-
+    img_shape, p1, p2 = read_entry_line_config()
+    # print(type(img_shape[0]))
     coefficients = get_coef(p1, p2)
     points_cartesian = get_point_cartesian(centroids)
     # print(points_cartesian.shape) 
@@ -146,5 +146,5 @@ if __name__ == "__main__":
     d = -1 * distance_points2line(points_cartesian, coefficients)
     print(d)
     print(time.time()-t1)
-    visualize(p1, p2, centroids, d, coefficients)
+    visualize(img_shape, p1, p2, centroids, d, coefficients)
 
