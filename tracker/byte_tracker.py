@@ -140,6 +140,16 @@ class STrack(BaseTrack):
 
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
+    
+    def idassigner_id(self, assigner_id):
+        # print("hoho:", self.track_id, "-:", assigner_id)
+        # self.track_id = assigner_id
+        # print("hoho:", self.track_id, "-:", assigner_id)
+        # self.track_id = assigner_id
+        print("statenya:", self.state)
+
+    def get_id(self):
+      return self.track_id
 
 
 class BYTETracker(object):
@@ -164,16 +174,16 @@ class BYTETracker(object):
         removed_stracks = []
         # print((output_results.shape[1]))
         if len(output_results):
-            print("MASUK1")
+            # print("MASUK1")
             # print(output_results)
             if output_results.shape[1] == 6:
-                print("ehei")
+                # print("ehei")
                 scores = output_results[:, 4]
                 bboxes = output_results[:, :4]
             else:
                 scores = output_results[:, 4] * output_results[:, 5]
                 bboxes = output_results[:, :4]  # x1y1x2y2
-            print("skore: ", scores)
+            # print("skore: ", scores)
             # img_h, img_w = 720, 1280
             # scale = min(640/ float(img_h), 640 / float(img_w))
             # bboxes /= scale
@@ -193,7 +203,7 @@ class BYTETracker(object):
             dets = []
             scores_keep = []
             dets_second = []
-        print("MASUK2")
+        # print("MASUK2")
         print(len(dets_second))
         if len(dets) > 0:
             '''Detections'''
