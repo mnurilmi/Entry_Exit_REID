@@ -23,6 +23,9 @@ class STrack(BaseTrack):
         self.score = score
         self.tracklet_len = 0
 
+        self.feat = []
+        self.state_ = TrackState.Tracked
+
     def predict(self):
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:
@@ -46,6 +49,8 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
+        self.track_id_ = -1
+        
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
 
         self.tracklet_len = 0
@@ -141,15 +146,37 @@ class STrack(BaseTrack):
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
     
-    def idassigner_id(self, assigner_id):
-        # print("hoho:", self.track_id, "-:", assigner_id)
-        # self.track_id = assigner_id
-        # print("hoho:", self.track_id, "-:", assigner_id)
-        # self.track_id = assigner_id
-        print("statenya:", self.state)
 
     def get_id(self):
-      return self.track_id
+        # print("===get id===")
+        return self.track_id_
+    
+    def set_id(self, id_):
+        temp = self.track_id_
+        self.track_id_ = id_
+        # print("===id- ", temp, "-> ", self.track_id_, " ===")
+
+    def get_state(self):   
+        # print("===get state===")
+        return self.state_
+    
+    def set_state(self, state_):
+        temp = self.state
+        self.state_ = state_
+        # print("===state- ", temp, "-> ", self.state, " ===")
+    
+    def get_feat(self):   
+        # print("===get feat===")
+        return self.feat
+
+    def update_feat(self, feat_):
+        f = self.feat
+        if len(f)<5:
+            f.append(feat_)
+        else:
+            f.pop(0)
+            f.append(feat_)
+        # print("===fitur terupdate dengan panjang: ", len(self.feat), "====")
 
 
 class BYTETracker(object):

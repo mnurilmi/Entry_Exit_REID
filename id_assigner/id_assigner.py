@@ -25,29 +25,32 @@ import sys
 import uuid
 import glob
 import os
+from numpy.lib import DataSource
 # sys.path.insert(0, "deep-person-reid")
 # sys.path.append(".")
 
+from tracker.basetrack import TrackState
 import torchreid
 from torchreid.utils import FeatureExtractor
 import torch
 from scipy.spatial import distance
 
 
-
 class IDAssigner(object):
 
-    def __init__(self, entry_line_config, distance_treshold = 10, reid_model_name = "osnet_x1_0", reid_model_path = 'models/model.pth.tar-60'):
-        print(torch.cuda.is_available())
+    def __init__(self, entry_line_config, distance_treshold = 0, reid_model_name = "osnet_x1_0", reid_model_path = 'models/model.pth.tar-60'):
+        print("CUDA active?: ", torch.cuda.is_available())
         self.last_id = 0
         self.ids = []
         self.centroids = []
         self.distances = []
         self.distance_treshold = distance_treshold
         self.entry_line_coef = self.calculate_line_coef(entry_line_config)
-        self.admin = {}
+        self.db = {}
         self.max_intra = 0
         self.min_inter = 99
+        self.tracked_objects = []
+        self.states = []
 
         # Inisialisasi model
         self.feat_extractor = FeatureExtractor(
@@ -65,91 +68,65 @@ class IDAssigner(object):
             os.remove(f)
         print("===Berhasil reset folder!===")
 
-    def register_ids(self, im0, ot):
+    def update(self, im0, ot):
         """
         Steps:
         - kalkulasi centroids dan hitung jarak ke entry line
         - tentuin state
         """
+        # if len(self.tracked_objects) == 0:
+        #     self.tracked_objects = ot
+        #     self.states = ["new" for _ in range(len(ot))]
+        # else:
+        #     for t in ot:
+        #         if t not in self.tracked_objects:
+        #             self.tracked_objects.append(t)
+        # print("TO: ", self.tracked_objects)
+
+
         im1 = im0.copy()
+        tlbrs = [t.tlbr for t in ot]
+        centroids = self.calculate_centroids(tlbrs)
+        distances = self.calculate_distance2line(centroids, self.entry_line_coef)
+        patches = [self.extract_patch(im1, tlbr) for tlbr in tlbrs]
+        feats = self.extract_feature(patches)
+        self.update_feats(ot, feats)
+        self.set_ids(ot, distances)
+
+
+
+        # visualize the entry line
+        cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),3)
+        
+        
+
         # print(self.x)
         # print(self.y)
-        cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),3)
-        tlbrs = [t.tlbr for t in ot]
-
         # H, W, _ = np.shape(im0)
         # print(H, W)
-        patches = [self.extract_patch(im1, tlbr) for tlbr in tlbrs]
         # print("p: ",patches)
-        feats = self.extract_feature(patches)
         # print(feats[i].shape)
-
-        self.centroids = self.calculate_centroids(tlbrs)
-        self.distances = self.calculate_distance2line(self.centroids, self.entry_line_coef)
         # print("D:", self.distances)
-        self.tracks_passed = self.check_passed_the_line()
+        self.tracks_passed = self.check_passed_the_line(distances)
         # print(self.tracks_passed)
 
 
-        # Mulai register objek ke dictionary
-        for i in range(len(ot)):
-            tid = ot[i].get_id()
-
-            f = []
-            if tid in self.admin.keys():
-                f = self.admin[tid]["feats"]
-                if len(f)<5:
-                    f.append(feats[i])
-                else:
-                    f.pop(0)
-                    f.append(feats[i])
-                self.admin[tid] = {
-                  "objek": ot[i],
-                  "feats":f,
-                  "distance": self.distances[i],
-                  "passed": self.tracks_passed[i],
-                  "last_state": "tracked"
-                }
-                print("===cek state===")
-                if self.admin[tid]["last_state"] == "tracked":
-                    if self.admin[tid]["passed"]:
-                        self.admin[tid]["last_state"] = "enter"
-                if self.admin[tid]["last_state"] == "enter":
-                    if not self.admin[tid]["passed"]:
-                        self.admin[tid]["last_state"] = "exit"      
-            else:
-                f.append(feats[i])
-                self.admin[tid] = {
-                  "objek": ot[i],
-                  "feats":f,
-                  "distance": self.distances[i],
-                  "passed": self.tracks_passed[i],
-                  "last_state": "tracked"
-                }
-
-
-            print("admin: ", self.admin[tid]["distance"])
-            print("admin: ", self.admin[tid]["passed"])
-            print("admin: ", self.admin[tid]["last_state"])
-            
-            # print("objek: ", self.admin[tid]["objek"].get_id())
-            print("feats length: ", len(self.admin[tid]["feats"]), "\n")
-
+        
             
         # Cek asosiasi intra class feature
-        for f in self.admin[1]["feats"]:
-            for g in self.admin[1]["feats"]:
-                d = distance.cdist(
-                    f.cpu().data.numpy().reshape(1, -1),
-                    g.cpu().data.numpy().reshape(1, -1), "euclidean"
-                    )
-                # Mencari maximum jarak euclidean intraclass
-                if d > self.max_intra:
-                    self.max_intra = d
+        # for f in self.admin[1]["feats"]:
+        #     for g in self.admin[1]["feats"]:
+        #         d = distance.cdist(
+        #             f.cpu().data.numpy().reshape(1, -1),
+        #             g.cpu().data.numpy().reshape(1, -1), "euclidean"
+        #             )
+        #         # Mencari maximum jarak euclidean intraclass
+        #         if d > self.max_intra:
+        #             self.max_intra = d
 
-        if len(self.admin[1]["feats"])==5:
-            x = self.admin[1]["feats"].numpy()
-            print(x.shape)
+        # if len(self.admin[1]["feats"])==5:
+        #     x = self.admin[1]["feats"].numpy()
+        #     print(x.shape)
             # # print(x[0].shape)
             # for f in x:
             #     ds = distance.cdist(
@@ -158,19 +135,23 @@ class IDAssigner(object):
             #         "euclidean"
             #         ) 
             #     print("Ds: ", ds)
-        print("max intra: ", self.max_intra) 
+        # print("max intra: ", self.max_intra) 
 
         # # Cek asosiasi inter class feature
         # if len(admin.keys()>1):
         #     for 
 
-
         return self.distances, self.tracks_passed
 
 
-    def check_passed_the_line(self):
-        return [True if x <= self.distance_treshold else False for x in self.distances]
+    def check_passed_the_line(self, distances):
+        return [True if x <= self.distance_treshold else False for x in distances]
     
+    def is_passed(self, distance):
+        if distance <= self.distance_treshold:
+            return False
+        else:
+            return True
 
     # def calculate_centroid(tlbr):
     #     print(tlbr)
@@ -264,4 +245,96 @@ class IDAssigner(object):
                               f.cpu().data.numpy().reshape(1, -1),
                               g.cpu().data.numpy().reshape(1, -1), "euclidean"
                               ))
+                    
         return features
+    
+    def update_feats(self, ot, feats):
+        # print("panjang fiturs: ", feats.shape)
+        
+        feats_np = feats.cpu().data.numpy()
+        for i in range(len(ot)):
+
+            # ot[i].set_id(99)
+            # ot[i].set_state(TrackState.In)
+            # print("id: ", ot[i].get_id())
+            # print("state: ", ot[i].get_state())
+            # print(TrackState.In)
+            # print("hoho",len(feats_np[i]))
+            
+          
+            ot[i].update_feat(feats_np[i])
+
+
+    def set_ids(self, ot, distances):
+        print("===set ids===: ", len(ot), "track online")
+        for i in range(len(ot)):
+            # print("{}={}={}".format(ot[i].get_id(), ot[i].get_state(), distances[i]))
+            # print(self.calculate_intra_class_distance(ot[i]))
+
+            if ot[i].get_state() == TrackState.Tracked:
+                # print("masuk")
+                if ot[i].get_id() == -1:
+                    ot[i].set_id(self.next_id())
+
+                if self.is_passed(distances[i]):
+                    ot[i].set_state(TrackState.In)
+                    print(ot[i].get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                    self.save_2_db(ot[i])
+                else:
+                    pass
+
+            if ot[i].get_state() == TrackState.In:
+                if ot[i].get_id() == -1:
+                    ot[i].set_id(self.next_id())
+                if not self.is_passed(distances[i]):
+                    ot[i].set_state(TrackState.Exit)
+                    print("state EXIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                else:
+                    pass
+            
+            if ot[i].get_state == TrackState.Exit:
+                print(" Matching DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+      
+            # print("<=======================>")  
+            # print("{}={}={}".format(ot[i].get_id(), ot[i].get_state(), distances[i]))
+            # print("\n")
+
+        print("data di database: ", self.db.keys())
+
+    def next_id(self):
+        self.last_id += 1
+        return self.last_id 
+
+    def save_2_db(self, t):
+        self.db[t.get_id()] = {
+            "feats":t.get_feat()
+        }
+
+
+
+    
+    def calculate_intra_class_distance(self, t):
+        # Cek asosiasi intra class feature
+        ds = []
+        print("len feat: ", len(t.get_feat()))
+        print("feat", np.array(t.get_feat()).shape)
+        for f in t.get_feat():
+            for g in t.get_feat():
+                ds.append(int(
+                    distance.cdist(
+                    f.reshape(1, -1),
+                    g.reshape(1, -1), "euclidean"
+                ).tolist()[-1][-1]
+                ))
+        print("intra class distance: ")
+        # print(ds)
+        return ds
+
+
+
+
+
+
+
+

@@ -124,6 +124,7 @@ def main():
         results = []
         
         for i, det in enumerate(pred):  # detections per image
+            print("\n===Deteksi===")
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
             else:
@@ -150,40 +151,42 @@ def main():
             online_scores = []
 
             hoho = 0
-            a, b = id_assigner.register_ids(im0, ot = online_targets)
-            for i in range(len(online_targets)):
-                # print(online_targets[i].idassigner_id(hoho))
-                tlwh = online_targets[i].tlwh
-                tlbr = online_targets[i].tlbr
-                tid = online_targets[i].track_id
-                c = get_centroid(tlbr)
-                # print(f"{tid}-{c}")
-                hoho += 1
-                
-                
-                
+            # print(len(detections))
+            print(len(online_targets))
+            print("==========UPDATE ID ASSIGNER==========")
+            a, b = id_assigner.update(im0, ot = online_targets)
+            print("\n")
+           
+            # for i in range(len(online_targets)):
+            #     # print(online_targets[i].idassigner_id(hoho))
+            #     tlwh = online_targets[i].tlwh
+            #     tlbr = online_targets[i].tlbr
+            #     tid = online_targets[i].track_id
+            #     c = get_centroid(tlbr)
+            #     # print(f"{tid}-{c}")
+            #     hoho += 1
 
-                if tlwh[2] * tlwh[3] > opt.min_box_area:
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
-                    online_scores.append(online_targets[i].score)
+            #     if tlwh[2] * tlwh[3] > opt.min_box_area:
+            #         online_tlwhs.append(tlwh)
+            #         online_ids.append(tid)
+            #         online_scores.append(online_targets[i].score)
                     
-                    #save results
-                    results.append(
-                        f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
-                    )
+            #         #save results
+            #         results.append(
+            #             f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
+            #         )
 
-                    if save_img or view_img:  # Add bbox to image
-                        if opt.hide_labels_name:
-                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
-                        else:
-                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
-                        cv2.circle(im0, c, radius=3, color=(0, 0, 255), thickness=3)
-                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+            #         if save_img or view_img:  # Add bbox to image
+            #             if opt.hide_labels_name:
+            #                 label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+            #             else:
+            #                 label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+            #             cv2.circle(im0, c, radius=3, color=(0, 0, 255), thickness=3)
+            #             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             p = Path(p)
             save_path = str(save_dir / p.name)
 
-                        # Stream results
+            # Stream results
             if opt.view_img:
                 cv2.imshow('ByteTrack', im0)
                 cv2.waitKey(1)  # 1 millisecond
