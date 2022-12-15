@@ -38,9 +38,11 @@ def click_event(event, x, y, flags, params):
                 line["y1"] = points[0][1]
                 line["x2"] = points[1][0]
                 line["y2"] = points[1][1]
+                # print("gradien: ", -1*(line["y1"]-line["y2"])/(line["x1"]-line["x2"]))
+                # line["gradien"] = -1*(line["y1"]-line["y2"])/(line["x1"]-line["x2"])
                 print(line)
                 json_object = json.dumps(line, indent=4)
-                with open("configs/entry_line_config2.json", "w") as outfile:
+                with open("configs/entry_line_configx.json", "w") as outfile:
                     outfile.write(json_object)
                 
 

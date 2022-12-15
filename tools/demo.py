@@ -30,12 +30,6 @@ from tracker.tracking_utils.timer import Timer
 
 from id_assigner.id_assigner import IDAssigner
 
-def get_centroid(tlbr):
-  print(tlbr)
-  w = int(tlbr[3]-tlbr[1])
-  h = int(tlbr[2] - tlbr[0])
-  return (int(tlbr[0] + h/2), int(tlbr[1] + w/2))
-
 # Start Code
 def main():
     save_img = not opt.nosave and not opt.source.endswith(".txt")
@@ -124,7 +118,7 @@ def main():
         results = []
         
         for i, det in enumerate(pred):  # detections per image
-            print("\n===Deteksi===")
+            print("\n=========DETEKSI==========")
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
             else:
@@ -152,37 +146,38 @@ def main():
 
             hoho = 0
             # print(len(detections))
-            print(len(online_targets))
-            print("==========UPDATE ID ASSIGNER==========")
-            a, b = id_assigner.update(im0, ot = online_targets)
-            print("\n")
-           
-            # for i in range(len(online_targets)):
-            #     # print(online_targets[i].idassigner_id(hoho))
-            #     tlwh = online_targets[i].tlwh
-            #     tlbr = online_targets[i].tlbr
-            #     tid = online_targets[i].track_id
-            #     c = get_centroid(tlbr)
-            #     # print(f"{tid}-{c}")
-            #     hoho += 1
+            # print(len(online_targets))
+            print("===ID ASSIGNER UPDATE===")
+            a, b, c = id_assigner.update(im0, ot = online_targets)
+            # print("\n")
+            # print(len(a), len(b))
+            
+            for i in range(0, len(online_targets)):
+                # print(online_targets[i].idassigner_id(hoho))
+                tlwh = online_targets[i].tlwh
+                tlbr = online_targets[i].tlbr
+                tid = online_targets[i].track_id
+                hoho += 1
 
-            #     if tlwh[2] * tlwh[3] > opt.min_box_area:
-            #         online_tlwhs.append(tlwh)
-            #         online_ids.append(tid)
-            #         online_scores.append(online_targets[i].score)
+                if tlwh[2] * tlwh[3] > opt.min_box_area:
+                    online_tlwhs.append(tlwh)
+                    online_ids.append(tid)
+                    online_scores.append(online_targets[i].score)
                     
-            #         #save results
-            #         results.append(
-            #             f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
-            #         )
+                    #save results
+                    results.append(
+                        f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
+                    )
 
-            #         if save_img or view_img:  # Add bbox to image
-            #             if opt.hide_labels_name:
-            #                 label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
-            #             else:
-            #                 label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
-            #             cv2.circle(im0, c, radius=3, color=(0, 0, 255), thickness=3)
-            #             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+                    if save_img or view_img:  # Add bbox to image
+                        if opt.hide_labels_name:
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+                        else:
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+                        cv2.circle(im0, c[i], radius=3, color=(0, 0, 255), thickness=3)
+                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+            
+            print("\n")
             p = Path(p)
             save_path = str(save_dir / p.name)
 
@@ -213,7 +208,8 @@ def main():
     if opt.save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         # print(f"Results saved to {save_dir}{s}")
-
+    id_assigner.log_report()
+    id_assigner.sample_db()
     print(f'Done. ({time.time() - t0:.3f}s)')
 
 

@@ -11,7 +11,7 @@
             "count":
         },
     }
-    state       -> (string) "tracked","entry", "exit"
+    state       -> (string) "tracked","in", "exit"
     distance    -> (float)
     count       ->
 """
@@ -21,8 +21,8 @@ import math
 import time
 import json
 import cv2
-import sys
-import uuid
+# import sys
+# import uuid
 import glob
 import os
 from numpy.lib import DataSource
@@ -30,11 +30,11 @@ from numpy.lib import DataSource
 # sys.path.append(".")
 
 from tracker.basetrack import TrackState
-import torchreid
+
+# import torchreid
 from torchreid.utils import FeatureExtractor
 import torch
 from scipy.spatial import distance
-
 
 class IDAssigner(object):
 
@@ -51,22 +51,34 @@ class IDAssigner(object):
         self.min_inter = 99
         self.tracked_objects = []
         self.states = []
+        self.event_logger = {
+            "saving_db":0,
+            "matching_db":0,
+            "match":0
+        }
 
-        # Inisialisasi model
+        # Reid model inisialization
         self.feat_extractor = FeatureExtractor(
             model_name = reid_model_name,
             model_path = reid_model_path,
             device='cuda'
         )
 
+        # Reset folder for saving patches
         self.reset()
+
         print("===ReID model and ID Assigner ready!===")
     
+
     def reset(self):
         files = glob.glob('temp/*')
         for f in files:
             os.remove(f)
         print("===Berhasil reset folder!===")
+
+    def next_id(self):
+        self.last_id += 1
+        return self.last_id 
 
     def update(self, im0, ot):
         """
@@ -83,7 +95,9 @@ class IDAssigner(object):
         #             self.tracked_objects.append(t)
         # print("TO: ", self.tracked_objects)
 
-
+        if len(ot) == 0:
+            return [], [], []
+            
         im1 = im0.copy()
         tlbrs = [t.tlbr for t in ot]
         centroids = self.calculate_centroids(tlbrs)
@@ -93,13 +107,9 @@ class IDAssigner(object):
         self.update_feats(ot, feats)
         self.set_ids(ot, distances)
 
-
-
         # visualize the entry line
         cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),3)
         
-        
-
         # print(self.x)
         # print(self.y)
         # H, W, _ = np.shape(im0)
@@ -107,51 +117,43 @@ class IDAssigner(object):
         # print("p: ",patches)
         # print(feats[i].shape)
         # print("D:", self.distances)
-        self.tracks_passed = self.check_passed_the_line(distances)
+        tracks_passed = self.check_passed_the_line(distances)
         # print(self.tracks_passed)
 
-
-        
-            
-        # Cek asosiasi intra class feature
-        # for f in self.admin[1]["feats"]:
-        #     for g in self.admin[1]["feats"]:
-        #         d = distance.cdist(
-        #             f.cpu().data.numpy().reshape(1, -1),
-        #             g.cpu().data.numpy().reshape(1, -1), "euclidean"
-        #             )
-        #         # Mencari maximum jarak euclidean intraclass
-        #         if d > self.max_intra:
-        #             self.max_intra = d
-
-        # if len(self.admin[1]["feats"])==5:
-        #     x = self.admin[1]["feats"].numpy()
-        #     print(x.shape)
-            # # print(x[0].shape)
-            # for f in x:
-            #     ds = distance.cdist(
-            #         f.reshape(1, -1),
-            #         x,
-            #         "euclidean"
-            #         ) 
-            #     print("Ds: ", ds)
-        # print("max intra: ", self.max_intra) 
-
-        # # Cek asosiasi inter class feature
-        # if len(admin.keys()>1):
-        #     for 
-
-        return self.distances, self.tracks_passed
+        return distances, tracks_passed, centroids
 
 
     def check_passed_the_line(self, distances):
-        return [True if x <= self.distance_treshold else False for x in distances]
+        track_passed = []
+        for d in distances:
+            track_passed.append(self.is_passed(d))
+        return track_passed
     
-    def is_passed(self, distance):
-        if distance <= self.distance_treshold:
-            return False
+    def is_passed(self, distance, entry_area = "left"):
+        # First ssumption the location enter on the left side of the picture
+        # The user can setting it on the config
+        if entry_area == "left":
+            if distance <= self.distance_treshold:
+                if self.gradient == "positive":
+                    return False
+                else:
+                    return True
+            else:
+                if self.gradient == "positive":
+                    return True
+                else:
+                    return False
         else:
-            return True
+            if distance <= self.distance_treshold:
+                if self.gradient == "negative":
+                     return False
+                else:
+                    return True
+            else:
+                if self.gradient == "negative":
+                    return True
+                else:
+                    return False
 
     # def calculate_centroid(tlbr):
     #     print(tlbr)
@@ -176,8 +178,6 @@ class IDAssigner(object):
         # print(Cx)
         return [(int(Cx[i]), int(Cy[i])) for i in range(len(Cx))]
 
-
-    # =====Line to point functions
     def calculate_line_coef(self, config):
         # Opening JSON file
         with open(config, 'r') as openfile:
@@ -192,7 +192,22 @@ class IDAssigner(object):
         y = [-1 * i for i in y] # penyesuaian pada bidang gambar
         # print(y)
         # Calculate the coefficients. This line answers the initial question. 
-        coefficients = np.polyfit(x, y, 1) 
+        coefficients = np.polyfit(x, y, 1)
+
+        # gradient calculation for determining entry area in another function
+        if x[1]-x[0] == 0:
+            m = np.inf
+        else:
+            m = -1*(y[1]-y[0])/(x[1]-x[0])
+        if  m > 0:
+            self.gradient = "positive"
+        elif m < 0:
+            self.gradient = "negative"
+        elif m == 0:
+            self.gradient = "horizontal"
+        elif m == np.inf: 
+            self.gradient = "vertical"
+
         return coefficients
 
     def calculate_points_cartesian(self, points):
@@ -210,7 +225,7 @@ class IDAssigner(object):
         # print(x.shape)
         return ((np.dot(points, x)+coef[1]) * (1/math.sqrt((coef[0]*coef[0])+1))).flatten()
 
-    # =====REID=====
+
     def extract_patch(self, img, tlbr):
         # print(tlbr)
         # print(img.shape)
@@ -249,69 +264,98 @@ class IDAssigner(object):
         return features
     
     def update_feats(self, ot, feats):
-        # print("panjang fiturs: ", feats.shape)
-        
+        # print("feats length: ", feats.shape)  
         feats_np = feats.cpu().data.numpy()
         for i in range(len(ot)):
-
             # ot[i].set_id(99)
             # ot[i].set_state(TrackState.In)
             # print("id: ", ot[i].get_id())
             # print("state: ", ot[i].get_state())
             # print(TrackState.In)
             # print("hoho",len(feats_np[i]))
-            
-          
             ot[i].update_feat(feats_np[i])
 
 
     def set_ids(self, ot, distances):
-        print("===set ids===: ", len(ot), "track online")
+        print("===set ids===   ", len(ot), "tracks online")
         for i in range(len(ot)):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_state(), distances[i]))
             # print(self.calculate_intra_class_distance(ot[i]))
-
-            if ot[i].get_state() == TrackState.Tracked:
-                # print("masuk")
-                if ot[i].get_id() == -1:
-                    ot[i].set_id(self.next_id())
-
-                if self.is_passed(distances[i]):
-                    ot[i].set_state(TrackState.In)
-                    print(ot[i].get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                    self.save_2_db(ot[i])
-                else:
-                    pass
-
-            if ot[i].get_state() == TrackState.In:
-                if ot[i].get_id() == -1:
-                    ot[i].set_id(self.next_id())
-                if not self.is_passed(distances[i]):
-                    ot[i].set_state(TrackState.Exit)
-                    print("state EXIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                else:
-                    pass
-            
-            if ot[i].get_state == TrackState.Exit:
-                print(" Matching DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
-      
+    
+            self.algorithm_scene1(ot, distances, i)
+    
             # print("<=======================>")  
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_state(), distances[i]))
             # print("\n")
+        print("data in database: ", self.db.keys())
 
-        print("data di database: ", self.db.keys())
+    def algorithm_scene1(self, ot, distances, i):
+        """
+        algorithm notes:
+            * default state: Tracked
+            * features are saved just once when the track pass the line for the first time
+            * Impossible condition are:
+                * id -1; any state except tracked
 
-    def next_id(self):
-        self.last_id += 1
-        return self.last_id 
+        """
+        if ot[i].get_id() == -1:
+            if not self.is_passed(distances[i]):
+                # set new id, state unchanged
+                ot[i].set_id(self.next_id())
+            else:
+                # matching db
+                is_match, registered_object = self.matching_db(ot[i].get_feat())
+                if is_match:
+                    ot[i].set_id(registered_object.get_id())
+                    ot[i].set_state(TrackState.Matching)
+                else:
+                    # set new id and start tracking as usual
+                    ot[i].set_id(self.next_id())
+
+                    self.save_2_db(ot[i])
+                    ot[i].set_state(TrackState.In) # transition Tracked to In
+        else:
+            if not self.is_passed(distances[i]):
+                # tracking as usual until cross/pass the entry line
+                ot[i].set_state(TrackState.Tracked)
+            else:
+                if ot[i].get_state() == TrackState.Tracked:
+                    # saving to db
+                    self.save_2_db(ot[i])
+                    ot[i].set_state(TrackState.In) # transition Tracked to In
+                elif ot[i].get_state() == TrackState.Matching:
+                    # matching db until pass the entry line again
+                    is_match, registered_object = self.matching_db(ot[i].get_feat())
+                    if is_match:
+                        ot[i].set_id(registered_object.get_id())
+                    else:
+                        # tracking as usual with current id
+                        pass
+                else:
+                    # tracking as usual
+                    pass
+
+        #===end function===
+    
+    def matching_db(self, feat_):
+        self.log_event("matching_db")
+        # for o in self.db.keys():
+
+
+        # return True, registered_object
+
+        return False, None
+            
+
 
     def save_2_db(self, t):
+        # saving feat to db
+        print(t.get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.log_event("saving_db")
         self.db[t.get_id()] = {
-            "feats":t.get_feat()
+            "registered_object": t
         }
-
-
+        
 
     
     def calculate_intra_class_distance(self, t):
@@ -331,10 +375,18 @@ class IDAssigner(object):
         # print(ds)
         return ds
 
+    def log_event(self, event):
+        if event not in self.event_logger.keys():
+            self.event_logger[event] = 1
+        else:    
+            self.event_logger[event] += 1
 
-
-
-
-
-
-
+    def log_report(self):
+        print("\n=====REPORT EVENT=====")
+        print(self.event_logger)
+    
+    def sample_db(self):
+        print("\n===== SAMPLE DATABASE=====")
+        print(self.db)
+        for i in self.db.keys():
+            print("feat shape: ", self.db[i]["registered_object"].get_feat().shape) 

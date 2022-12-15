@@ -23,7 +23,7 @@ class STrack(BaseTrack):
         self.score = score
         self.tracklet_len = 0
 
-        self.feat = []
+        self.feat = np.array([])
         self.state_ = TrackState.Tracked
 
     def predict(self):
@@ -170,13 +170,15 @@ class STrack(BaseTrack):
         return self.feat
 
     def update_feat(self, feat_):
-        f = self.feat
+        f = self.feat.copy().tolist()
+        
         if len(f)<5:
             f.append(feat_)
         else:
             f.pop(0)
             f.append(feat_)
-        # print("===fitur terupdate dengan panjang: ", len(self.feat), "====")
+        self.feat = np.array(f)
+        # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
 
 
 class BYTETracker(object):

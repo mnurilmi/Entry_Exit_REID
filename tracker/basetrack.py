@@ -7,8 +7,9 @@ class TrackState(object):
     Tracked = 1
     Lost = 2
     Removed = 3
+    
     In = 4
-    Exit = 5
+    Matching = 5
 
 
 class BaseTrack(object):
