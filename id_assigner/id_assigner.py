@@ -38,13 +38,20 @@ from scipy.spatial import distance
 
 class IDAssigner(object):
 
-    def __init__(self, entry_line_config, distance_treshold = 0, reid_model_name = "osnet_x1_0", reid_model_path = 'models/model.pth.tar-60'):
+    def __init__(self, 
+            entry_line_config, 
+            entry_area_position,
+            distance_treshold = 0, 
+            reid_model_name = "osnet_x1_0", 
+            reid_model_path = 'models/model.pth.tar-60'):
         print("CUDA active?: ", torch.cuda.is_available())
+        self.frame_id = 0
         self.last_id = 0
         self.ids = []
         self.centroids = []
         self.distances = []
         self.distance_treshold = distance_treshold
+        self.entry_area_position = entry_area_position
         self.entry_line_coef = self.calculate_line_coef(entry_line_config)
         self.db = {}
         self.max_intra = 0
@@ -54,7 +61,8 @@ class IDAssigner(object):
         self.event_logger = {
             "saving_db":0,
             "matching_db":0,
-            "match":0
+            "match":0,
+            "frame_indices":[]
         }
 
         # Reid model inisialization
@@ -94,9 +102,9 @@ class IDAssigner(object):
         #         if t not in self.tracked_objects:
         #             self.tracked_objects.append(t)
         # print("TO: ", self.tracked_objects)
-
+        self.frame_id +=1
         if len(ot) == 0:
-            return [], [], []
+            return [], [], [], []
             
         im1 = im0.copy()
         tlbrs = [t.tlbr for t in ot]
@@ -120,7 +128,7 @@ class IDAssigner(object):
         tracks_passed = self.check_passed_the_line(distances)
         # print(self.tracks_passed)
 
-        return distances, tracks_passed, centroids
+        return ot, distances, tracks_passed, centroids
 
 
     def check_passed_the_line(self, distances):
@@ -129,31 +137,43 @@ class IDAssigner(object):
             track_passed.append(self.is_passed(d))
         return track_passed
     
-    def is_passed(self, distance, entry_area = "left"):
+    def is_passed(self, distance):
         # First ssumption the location enter on the left side of the picture
         # The user can setting it on the config
-        if entry_area == "left":
-            if distance <= self.distance_treshold:
+        if self.entry_area_position == "left":
+            if distance >= self.distance_treshold:
                 if self.gradient == "positive":
-                    return False
-                else:
                     return True
+                else:
+                    return False
             else:
                 if self.gradient == "positive":
-                    return True
-                else:
                     return False
+                else:
+                    return True
         else:
-            if distance <= self.distance_treshold:
-                if self.gradient == "negative":
-                     return False
-                else:
-                    return True
-            else:
-                if self.gradient == "negative":
+            if distance < self.distance_treshold:
+                if self.gradient == "positive":
                     return True
                 else:
                     return False
+            else:
+                if self.gradient == "positive":
+                    return False
+                else:
+                    return True
+
+        # else:
+        #     if distance <= self.distance_treshold:
+        #         if self.gradient == "negative":
+        #              return False
+        #         else:
+        #             return True
+        #     else:
+        #         if self.gradient == "negative":
+        #             return True
+        #         else:
+        #             return False
 
     # def calculate_centroid(tlbr):
     #     print(tlbr)
@@ -307,6 +327,8 @@ class IDAssigner(object):
                 is_match, registered_object = self.matching_db(ot[i].get_feat())
                 if is_match:
                     ot[i].set_id(registered_object.get_id())
+                    # ot[i].set_id(99)
+                    
                     ot[i].set_state(TrackState.Matching)
                 else:
                     # set new id and start tracking as usual
@@ -328,6 +350,7 @@ class IDAssigner(object):
                     is_match, registered_object = self.matching_db(ot[i].get_feat())
                     if is_match:
                         ot[i].set_id(registered_object.get_id())
+                        # ot[i].set_id(99)
                     else:
                         # tracking as usual with current id
                         pass
@@ -338,7 +361,46 @@ class IDAssigner(object):
         #===end function===
     
     def matching_db(self, feat_):
+        print("MATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.log_event("matching_db")
+        ids = list(self.db.keys())
+        print("data in database: ", ids)
+
+        if len(ids) == 0:
+            return False, None
+
+
+        query = feat_
+        gallery = []
+        for id_ in ids:
+            gallery.extend(self.db[id_]["registered_object"].get_feat())
+        # calculate similarity
+        query = np.array(query)
+        gallery = np.array(gallery)
+        print(query)
+        # print(gallery)
+        ds = distance.cdist(
+                    query,
+                    gallery, 
+                    "euclidean"
+                )[-1]
+        ds = ds.tolist()
+        print(ds)
+        if max(ds) <20:
+          print(ds)
+          match = ids[self.argmax(ds)]
+          self.log_event("match")
+          self.event_logger["frame_indices"].append(self.frame_id)
+          print("MATCHED ID: ", match)
+          o = self.db[match]["registered_object"]
+          # del self.db["match"]
+          return True, o
+        # for id_ in range(len(ds)):
+        #     if ds[id_] >20:
+        #         return True, id_
+        
+
+
         # for o in self.db.keys():
 
 
@@ -347,6 +409,11 @@ class IDAssigner(object):
         return False, None
             
 
+    def argmin(self, lst):
+      return lst.index(min(lst))
+    
+    def argmax(self, lst):
+      return lst.index(max(lst))
 
     def save_2_db(self, t):
         # saving feat to db

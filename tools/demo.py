@@ -89,6 +89,7 @@ def main():
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
     t0 = time.time()
+    frame_id = 1
     for path, img, im0s, vid_cap, in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()
@@ -147,8 +148,8 @@ def main():
             hoho = 0
             # print(len(detections))
             # print(len(online_targets))
-            print("===ID ASSIGNER UPDATE===")
-            a, b, c = id_assigner.update(im0, ot = online_targets)
+            print("===ID ASSIGNER UPDATE===: ", frame_id)
+            online_targets, a, b, c = id_assigner.update(im0, ot = online_targets)
             # print("\n")
             # print(len(a), len(b))
             
@@ -156,7 +157,7 @@ def main():
                 # print(online_targets[i].idassigner_id(hoho))
                 tlwh = online_targets[i].tlwh
                 tlbr = online_targets[i].tlbr
-                tid = online_targets[i].track_id
+                tid = online_targets[i].get_id()
                 hoho += 1
 
                 if tlwh[2] * tlwh[3] > opt.min_box_area:
@@ -171,9 +172,9 @@ def main():
 
                     if save_img or view_img:  # Add bbox to image
                         if opt.hide_labels_name:
-                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+                            label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, a[i], b[i], frame_id)
                         else:
-                            label = '{0:}-{1:.2f}-{2:}'.format(tid, a[i], b[i])
+                            label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, a[i], b[i], frame_id)
                         cv2.circle(im0, c[i], radius=3, color=(0, 0, 255), thickness=3)
                         plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             
@@ -204,7 +205,7 @@ def main():
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
-
+        frame_id += 1
     if opt.save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         # print(f"Results saved to {save_dir}{s}")

@@ -169,10 +169,10 @@ class STrack(BaseTrack):
         # print("===get feat===")
         return self.feat
 
-    def update_feat(self, feat_):
+    def update_feat(self, feat_, feat_length = 1):
         f = self.feat.copy().tolist()
         
-        if len(f)<5:
+        if len(f)<feat_length:
             f.append(feat_)
         else:
             f.pop(0)
@@ -201,6 +201,7 @@ class BYTETracker(object):
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
+        print("object detected: ", len(output_results))
         # print((output_results.shape[1]))
         if len(output_results):
             # print("MASUK1")
@@ -233,7 +234,7 @@ class BYTETracker(object):
             scores_keep = []
             dets_second = []
         # print("MASUK2")
-        print(len(dets_second))
+        # print(len(dets_second))
         if len(dets) > 0:
             '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
