@@ -5,7 +5,17 @@ import json
 
 points = []
 line = {}
+# video_file = "test/jul2_miror.mp4"
+# file_name = "tools/UI/first_frame.jpg"
+# out = "configs/entry_line_config.json"
 
+# video_file = "test/jul2.mp4"
+# file_name = "tools/UI/first_frame.jpg"
+# out = "configs/entry_line_config2.json"
+
+video_file = "test/jul2.mp4"
+file_name = "tools/UI/first_frame.jpg"
+out = "configs/entry_line_config3.json"
 
 def getFirstFrame(videofile):
     vidcap = cv2.VideoCapture(videofile)
@@ -55,7 +65,7 @@ def click_event(event, x, y, flags, params):
                 # line["gradien"] = -1*(line["y1"]-line["y2"])/(line["x1"]-line["x2"])
                 print(line)
                 json_object = json.dumps(line, indent=4)
-                with open("configs/entry_line_config2.json", "w") as outfile:
+                with open(out, "w") as outfile:
                     outfile.write(json_object)
                 
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -65,9 +75,7 @@ def get_points_2orthogonalplane():
     return [[], []]
 
 if __name__ == "__main__":
-    video_file = "test/jul2.mp4"
     if getFirstFrame(video_file):
-        file_name = "tools/UI/first_frame.jpg"
         line_color = (0, 255, 0)
         line_thickness = 9
 

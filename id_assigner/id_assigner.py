@@ -227,7 +227,9 @@ class ID_Assigner(object):
         for i in range(len(ot)):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print(self.calculate_intra_class_distance(ot[i]))
-            self.algorithm1(ot, i)
+            # self.algorithm1(ot, i)
+            self.algorithm2(ot, i)
+            
             # print("<=======================>")
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print("\n")
@@ -292,6 +294,62 @@ class ID_Assigner(object):
                     # tracking as usual
                     pass
 
+    def algorithm2(self, ot, i):
+        """
+        algorithm notes:
+            * default state: Tracked
+            * features are saved just once when the track pass the line for the first time
+            * Impossible condition are:
+                * id -1; any state except tracked
+
+        """
+        tid = ot[i].get_id()
+        tls = ot[i].get_last_state()    # track last state
+        is_passed = self.is_passed(ot[i].get_distance()) 
+        feat = ot[i].get_feat()
+
+        if tid == -1:
+            # matching db
+            is_match, registered_object = self.matching_db(feat)
+            if is_match:
+                ot[i].set_id(registered_object.get_id())
+                # ot[i].set_id(99)
+                # print(feat)
+                ot[i].set_last_state(TrackState_.Matching)
+            else:
+                # set new id and start tracking as usual
+                ot[i].set_id(self.next_id())
+
+                self.save_2_db(ot[i])
+                ot[i].set_last_state(TrackState_.In) # transition Tracked to In
+        else:
+            if not is_passed:
+                if tls == TrackState_.Matching:
+                    print(feat)
+                    # Exit event condition; append output
+                    self.output.append(ot[i].get_id())
+
+                # tracking as usual until cross/pass the entry line
+                ot[i].set_last_state(TrackState_.Tracked)
+            else:
+                if  tls == TrackState_.Tracked:
+                    # saving to db
+                    self.save_2_db(ot[i])
+                    ot[i].set_last_state(TrackState_.In) # transition Tracked to In
+                elif tls == TrackState_.Matching:
+                    # matching db until pass the entry line again
+                    is_match, registered_object = self.matching_db(feat)
+                    if is_match:
+                        ot[i].set_id(registered_object.get_id())
+                        # ot[i].set_id(99)
+                    else:
+                        # tracking as usual with current id
+                        pass
+                else:
+                    # tracking as usual
+                    pass
+
+
     def is_passed(self, distance):
         # First ssumption the location enter on the left side of the picture
         # The user can setting it on the config
@@ -306,7 +364,29 @@ class ID_Assigner(object):
                     return False
                 else:
                     return True
-        else:
+        elif self.entry_area_position == "right":
+            if distance < self.distance_treshold:
+                if self.gradient == "positive":
+                    return True
+                else:
+                    return False
+            else:
+                if self.gradient == "positive":
+                    return False
+                else:
+                    return True
+        elif self.entry_area_position == "above":
+            if distance >= self.distance_treshold:
+                if self.gradient == "positive":
+                    return True
+                else:
+                    return False
+            else:
+                if self.gradient == "positive":
+                    return False
+                else:
+                    return True
+        elif self.entry_area_position == "below":
             if distance < self.distance_treshold:
                 if self.gradient == "positive":
                     return True
