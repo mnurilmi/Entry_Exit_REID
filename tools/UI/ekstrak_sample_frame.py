@@ -9,5 +9,6 @@ def getFirstFrame(videofile):
     else:
         print("gagal")
 if __name__ == "__main__":
+    # video_file = "test/temp/jul1.mp4"
     video_file = "test/jul2.mp4"
     getFirstFrame(video_file)

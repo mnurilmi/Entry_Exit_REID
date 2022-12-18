@@ -24,7 +24,7 @@ class STrack(BaseTrack):
         self.tracklet_len = 0
 
         self.feat = np.array([])
-        self.state_ = TrackState.Tracked
+        self.last_state_ = TrackState.Tracked
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -49,8 +49,10 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
+        # =====id assigner adaptation=====
         self.track_id_ = -1
-        
+        # =====end of adaptation=====
+
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
 
         self.tracklet_len = 0
@@ -145,8 +147,8 @@ class STrack(BaseTrack):
 
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
-    
 
+    # =====id assigner adaptation=====
     def get_id(self):
         # print("===get id===")
         return self.track_id_
@@ -156,14 +158,14 @@ class STrack(BaseTrack):
         self.track_id_ = id_
         # print("===id- ", temp, "-> ", self.track_id_, " ===")
 
-    def get_state(self):   
-        # print("===get state===")
-        return self.state_
+    def get_last_state(self):   
+        # print("===get last state===")
+        return self.last_state_
     
-    def set_state(self, state_):
-        temp = self.state
-        self.state_ = state_
-        # print("===state- ", temp, "-> ", self.state, " ===")
+    def set_last_state(self, state_):
+        temp = self.last_state_
+        self.last_state_ = state_
+        # print("===last state- ", temp, "-> ", self.last_state_, " ===")
     
     def get_feat(self):   
         # print("===get feat===")
@@ -180,6 +182,33 @@ class STrack(BaseTrack):
         self.feat = np.array(f)
         # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
 
+    def get_distance(self):
+        return self.distance
+
+    def set_distance(self, distance_):
+        self.distance = distance_
+
+    def get_centroid(self):
+        return self.centroid
+
+    def set_centroid(self, centroid_):
+        self.centroid = centroid_
+
+    def decode_state(self, case):
+        if case == 0:
+            return "New"
+        elif case == 1:
+            return "Tracked"
+        elif case == 2:
+            return "Lost"
+        elif case == 3:
+            return "Removed"
+        elif case ==  4:      
+            return "In" 
+        elif case == 5:
+            return "Matching"
+
+    # =====end of adaptation=====
 
 class BYTETracker(object):
     def __init__(self, args, frame_rate=30):
@@ -195,12 +224,14 @@ class BYTETracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
-    def update(self, output_results, img):
+    def update(self, output_results):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
+
+        # =====id assigner adaptation=====
         print("object detected: ", len(output_results))
         # print((output_results.shape[1]))
         if len(output_results):
@@ -233,8 +264,8 @@ class BYTETracker(object):
             dets = []
             scores_keep = []
             dets_second = []
-        # print("MASUK2")
-        # print(len(dets_second))
+        # =====end of adaptation=====
+
         if len(dets) > 0:
             '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for

@@ -28,10 +28,11 @@ from yolov7.utils.torch_utils import select_device, load_classifier, time_synchr
 from tracker.byte_tracker import BYTETracker
 from tracker.tracking_utils.timer import Timer
 
-from id_assigner.id_assigner import IDAssigner
+from id_assigner.id_assigner import ID_Assigner
 
 # Start Code
 def main():
+    t1 = time.time()
     save_img = not opt.nosave and not opt.source.endswith(".txt")
     webcam = opt.source.isnumeric() or opt.source.endswith('.txt') or opt.source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -83,28 +84,36 @@ def main():
     )
 
     # ID Assigner Inisialization
-    id_assigner = IDAssigner(opt.entry_line_config)
+    id_assigner = ID_Assigner(
+        opt.entry_line_config, 
+        opt.entry_area_position
+    )
     
     # Start Detection and Tracking
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
     t0 = time.time()
     frame_id = 1
+    FPS = 0
+    min_FPS = 99
+    max_FPS = 0
+    
     for path, img, im0s, vid_cap, in dataset:
+
+        # t1 = time_synchronized()
+
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()
         img /= 255.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
         
-        #model inferencing
-        t1 = time_synchronized()
+        # Model inference
         pred = model(
             img,
             augment = opt.augment)[0]
 
-        #NMS
+        # NMS
         pred = non_max_suppression(
             pred,
             opt.conf_thres,
@@ -112,14 +121,14 @@ def main():
             classes = opt.classes,
             agnostic = opt.agnostic_nms
         )
-        t2 = time_synchronized()
-        # print(len(pred))
+        # t2 = time_synchronized()
 
-        #tracking
+        # Tracking
         results = []
         
         for i, det in enumerate(pred):  # detections per image
             print("\n=========DETEKSI==========")
+            
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
             else:
@@ -134,8 +143,7 @@ def main():
                 detections[:, :4] = boxes
 
             online_targets = tracker.update(
-                detections,
-                im0
+                detections
             )
             # print(len(boxes))
             # print(boxes[0])
@@ -145,39 +153,84 @@ def main():
             online_ids = []
             online_scores = []
 
-            hoho = 0
             # print(len(detections))
             # print(len(online_targets))
-            print("===ID ASSIGNER UPDATE===: ", frame_id)
-            online_targets, a, b, c = id_assigner.update(im0, ot = online_targets)
-            # print("\n")
-            # print(len(a), len(b))
-            
-            for i in range(0, len(online_targets)):
-                # print(online_targets[i].idassigner_id(hoho))
-                tlwh = online_targets[i].tlwh
-                tlbr = online_targets[i].tlbr
-                tid = online_targets[i].get_id()
-                hoho += 1
+            if opt.with_id_assigner:
+                print("===ID ASSIGNER UPDATE===: ", frame_id)
+                online_targets= id_assigner.update(
+                    online_targets,
+                    im0
+                )
+                
+                # print("\n")
+                # print(len(a), len(b))
+                
+                for i in range(0, len(online_targets)):
+                    tlwh = online_targets[i].tlwh
+                    tlbr = online_targets[i].tlbr
+                    tid = online_targets[i].get_id()
 
-                if tlwh[2] * tlwh[3] > opt.min_box_area:
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
-                    online_scores.append(online_targets[i].score)
-                    
-                    #save results
-                    results.append(
-                        f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
-                    )
+                    td = online_targets[i].get_distance()       # distance to entry line
+                    tls = online_targets[i].decode_state(online_targets[i].get_last_state())    # track state
+                    tc = online_targets[i].get_centroid()       # track centroid
 
-                    if save_img or view_img:  # Add bbox to image
-                        if opt.hide_labels_name:
-                            label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, a[i], b[i], frame_id)
-                        else:
-                            label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, a[i], b[i], frame_id)
-                        cv2.circle(im0, c[i], radius=3, color=(0, 0, 255), thickness=3)
-                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
-            
+                    if tlwh[2] * tlwh[3] > opt.min_box_area:
+                        online_tlwhs.append(tlwh)
+                        online_ids.append(tid)
+                        online_scores.append(online_targets[i].score)
+                        
+                        #save results
+                        results.append(
+                            f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
+                        )
+
+                        if save_img or view_img:  # Add bbox to image
+                            if opt.hide_labels_name:
+                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                            else:
+                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                            # print(tc)
+                            cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
+
+                            FPS = int(1/(time.time() - t1))
+                            t1 = time.time()
+                            if FPS < min_FPS:
+                                min_FPS = FPS 
+                            if FPS > max_FPS:
+                                max_FPS = FPS
+                            cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                            plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+            else:
+                for i in range(0, len(online_targets)):
+                    tlwh = online_targets[i].tlwh
+                    tlbr = online_targets[i].tlbr
+                    tid = online_targets[i].track_id
+
+                    td = -1
+                    tls = -1
+                    if tlwh[2] * tlwh[3] > opt.min_box_area:
+                        online_tlwhs.append(tlwh)
+                        online_ids.append(tid)
+                        online_scores.append(online_targets[i].score)
+                        
+                        #save results
+                        results.append(
+                            f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
+                        )
+
+                        if save_img or view_img:  # Add bbox to image
+                            if opt.hide_labels_name:
+                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                            else:
+                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+
+                            FPS = int(1/(time.time() - t1))
+                            if FPS > min_FPS:
+                                min_FPS = FPS 
+                            if FPS < max_FPS:
+                                max_FPS = FPS
+                            cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                            plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)              
             print("\n")
             p = Path(p)
             save_path = str(save_dir / p.name)
@@ -205,17 +258,19 @@ def main():
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
+
         frame_id += 1
+        print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
+        
     if opt.save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         # print(f"Results saved to {save_dir}{s}")
+
     id_assigner.log_report()
     id_assigner.sample_db()
-    print(f'Done. ({time.time() - t0:.3f}s)')
+    id_assigner.log_output()
 
-
-
-
+    print(f'Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
 
 
 
@@ -244,7 +299,7 @@ if __name__ == "__main__":
 
     # ByteTrack Parser
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
+    parser.add_argument("--track_buffer", type=int, default=10, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.8, help="matching threshold for tracking")
     parser.add_argument(
         "--aspect_ratio_thresh", type=float, default=1.6,
@@ -253,8 +308,11 @@ if __name__ == "__main__":
     parser.add_argument('--min_box_area', type=float, default=10, help='filter out tiny boxes')
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
-    # ID Assigner Parser
+    # ID_Assigner Parser
+    parser.add_argument('--with_id_assigner', type=bool, default=True, help='with id assigner or not (True/False)')
     parser.add_argument('--entry_line_config', type=str, default='configs/entry_line_config2.json', help='entry line config path')
+    parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
+
     opt = parser.parse_args()
     print(opt)
 
