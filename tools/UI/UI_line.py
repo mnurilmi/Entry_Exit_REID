@@ -5,6 +5,19 @@ import json
 
 points = []
 line = {}
+
+
+def getFirstFrame(videofile):
+    vidcap = cv2.VideoCapture(videofile)
+    success, image = vidcap.read()
+    if success:
+        cv2.imwrite("tools/UI/first_frame.jpg", image)  # save frame as JPEG file
+        print("sukses terekstrak")
+        return True
+    else:
+        print("gagal")
+        return False
+
 # function to display the coordinates of
 # of the points clicked on the image
 def click_event(event, x, y, flags, params):
@@ -45,8 +58,6 @@ def click_event(event, x, y, flags, params):
                 with open("configs/entry_line_config2.json", "w") as outfile:
                     outfile.write(json_object)
                 
-
-           
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.imshow(window_name, new_img)
 
@@ -54,48 +65,40 @@ def get_points_2orthogonalplane():
     return [[], []]
 
 if __name__ == "__main__":
-    file_name = "tools/UI/first_frame.jpg"
-    line_color = (0, 255, 0)
-    line_thickness = 9
+    video_file = "test/jul2.mp4"
+    if getFirstFrame(video_file):
+        file_name = "tools/UI/first_frame.jpg"
+        line_color = (0, 255, 0)
+        line_thickness = 9
 
-    window_name = file_name
-    img = cv2.imread(file_name, 1)
-    h, w, c = img.shape
-    x_min, y_min = 0, 0
-    x_max, y_max = w, h
-    print(w, h)
-    p1 = (0, 0)
-    p2 = (100,100)
+        window_name = file_name
+        img = cv2.imread(file_name, 1)
+        h, w, c = img.shape
+        x_min, y_min = 0, 0
+        x_max, y_max = w, h
+        print(w, h)
+        p1 = (0, 0)
+        p2 = (100,100)
 
-    print(h, w, c)
+        print(h, w, c)
+        print(
+            x_min,
+            y_min,
+            x_max, 
+            y_max
+        )
+
+        new_img = img
+        # new_img = cv2.circle(new_img, p2, radius=1, color=(0, 0, 255), thickness=10)
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.imshow(window_name, new_img)
+        cv2.setMouseCallback(window_name, click_event)
+
+        # wait for a key to be pressed to exit
+        cv2.waitKey(0)
     
-    print(
-        x_min,
-        y_min,
-        x_max, 
-        y_max
-    )
-
-    new_img = img
-    # new_img = cv2.circle(new_img, p2, radius=1, color=(0, 0, 255), thickness=10)
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.imshow(window_name, new_img)
-
-
-    # # # print(f"h: {h}, w: {w}, c:{c}")
-    # # # displaying the image
-    # if len(points) <4:
-    #     # # setting mouse handler for the image
-    #     # # and calling the click_event() function
-    cv2.setMouseCallback(window_name, click_event)
-    # else if len(points) == 4:
-    #     pts = pts.reshape((-1, 1, 2))
-    #     image = cv2.polylines(image, [pts],
-    #                   isClosed, color,
-    #                   thickness)
-
-    # wait for a key to be pressed to exit
-    cv2.waitKey(0)
- 
-    # close the window
-    cv2.destroyAllWindows()
+        # close the window
+        cv2.destroyAllWindows()
+        print("CONFIGURATION SUCCEED")
+    else:
+        print("CONFIGURATION FAILED")

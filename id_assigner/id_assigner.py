@@ -257,7 +257,7 @@ class ID_Assigner(object):
                 if is_match:
                     ot[i].set_id(registered_object.get_id())
                     # ot[i].set_id(99)
-                    print(feats)
+                    # print(feat)
                     ot[i].set_last_state(TrackState_.Matching)
                 else:
                     # set new id and start tracking as usual
@@ -269,8 +269,8 @@ class ID_Assigner(object):
             if not is_passed:
                 if tls == TrackState_.Matching:
                     print(feat)
+                    # Exit event condition; append output
                     self.output.append(ot[i].get_id())
-                    # append output
 
                 # tracking as usual until cross/pass the entry line
                 ot[i].set_last_state(TrackState_.Tracked)

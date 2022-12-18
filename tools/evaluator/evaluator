@@ -1,0 +1,45 @@
+#importing packages
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+class Evaluator(object):
+    def __init__(
+        self, 
+        y_actual,
+        y_pred,  
+        labels,
+        metrics = ["accuracy", "precision", "recall", "f1"],
+        average = "macro",
+        verbose = False):
+        self.report = {
+
+        }
+
+
+        for m in metrics:
+            if m == "accuracy":
+                self.report["acc"] = accuracy_score(y_actual, y_pred)
+            elif m == "precision":
+                self.report["p"] = precision_score(y_actual, y_pred, average = average)
+            elif m == "recall":
+                self.report["r"] = recall_score(y_actual, y_pred, average = average)
+            elif m == "f1":
+                self.report["f1"] = f1_score(y_actual, y_pred, average = average)
+        
+        print(self.report)
+
+        if verbose:
+            disp = ConfusionMatrixDisplay(
+            confusion_matrix=cm,
+            display_labels=labels)
+            disp.plot()
+            plt.show()
+
+# if __name__ == "__main__":
+#     labels = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+#     y_actual = [1,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+#     y_pred = [2,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+#     print(len(y_pred))
+#     print(len(y_actual))
+#     print(len(labels))
+#     Evaluator(y_actual, y_pred, labels)

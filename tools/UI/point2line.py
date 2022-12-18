@@ -19,9 +19,9 @@ import math
 import time
 import json
 
-def read_entry_line_config():
+def read_entry_line_config(cfg):
     # Opening JSON file
-    with open('configs/entry_line_config2.json', 'r') as openfile:
+    with open(cfg, 'r') as openfile:
         # Reading from json file
         j = json.load(openfile)
     print(j)
@@ -120,6 +120,7 @@ def visualize(img_shape, p1, p2, centroids, distance, coefficients):
 
 
 if __name__ == "__main__":
+    cfg = 'configs/entry_line_config2.json'
     # Definisi centroid dari bbox
     centroids = [
         [1500, 1200],
@@ -129,7 +130,7 @@ if __name__ == "__main__":
         [2000, 0]
     ]
     #Definisi garis dari titik p1 dan p2
-    img_shape, p1, p2 = read_entry_line_config()
+    img_shape, p1, p2 = read_entry_line_config(cfg)
     # print(type(img_shape[0]))
     coefficients = get_coef(p1, p2)
     points_cartesian = get_point_cartesian(centroids)

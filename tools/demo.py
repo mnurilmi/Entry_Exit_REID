@@ -29,10 +29,13 @@ from tracker.byte_tracker import BYTETracker
 from tracker.tracking_utils.timer import Timer
 
 from id_assigner.id_assigner import ID_Assigner
+from fps_sync.fps_sync import fps_sync
+
 
 # Start Code
 def main():
-    t1 = time.time()
+    t_init_1 = time.time()
+    t0 = time.time()
     save_img = not opt.nosave and not opt.source.endswith(".txt")
     webcam = opt.source.isnumeric() or opt.source.endswith('.txt') or opt.source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -92,14 +95,18 @@ def main():
     # Start Detection and Tracking
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
-    t0 = time.time()
-    frame_id = 1
-    FPS = 0
-    min_FPS = 99
-    max_FPS = 0
-    
-    for path, img, im0s, vid_cap, in dataset:
 
+    frame_id = 1
+    t_init_2 = time.time()
+    delta_init = t_init_2 -t_init_1
+    print("Inizialization Time: ", delta_init, " s\n\n")
+
+
+    # t1 = time.time()
+    min_FPS = 999
+    max_FPS = -1
+    fps_syncronizer = fps_sync()
+    for path, img, im0s, vid_cap, in dataset:
         # t1 = time_synchronized()
 
         img = torch.from_numpy(img).to(device)
@@ -155,7 +162,7 @@ def main():
 
             # print(len(detections))
             # print(len(online_targets))
-            if opt.with_id_assigner:
+            if not opt.without_id_assigner:
                 print("===ID ASSIGNER UPDATE===: ", frame_id)
                 online_targets= id_assigner.update(
                     online_targets,
@@ -192,12 +199,13 @@ def main():
                             # print(tc)
                             cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
 
-                            FPS = int(1/(time.time() - t1))
-                            t1 = time.time()
-                            if FPS < min_FPS:
+                            # FPS = int(1/(time.time() - t1))
+                            FPS = int(fps_syncronizer.get_FPS())
+                            if FPS < min_FPS and not FPS == 0:
                                 min_FPS = FPS 
                             if FPS > max_FPS:
                                 max_FPS = FPS
+                            print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
                             cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             else:
@@ -224,14 +232,16 @@ def main():
                             else:
                                 label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
 
-                            FPS = int(1/(time.time() - t1))
-                            if FPS > min_FPS:
+                            # FPS = int(1/(time.time() - t1))
+                            FPS = int(fps_syncronizer.get_FPS())
+                            if FPS < min_FPS and not FPS == 0:
                                 min_FPS = FPS 
-                            if FPS < max_FPS:
+                            if FPS > max_FPS:
                                 max_FPS = FPS
+                            print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
                             cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)              
-            print("\n")
+            # print("\n")
             p = Path(p)
             save_path = str(save_dir / p.name)
 
@@ -260,7 +270,8 @@ def main():
                     vid_writer.write(im0)
 
         frame_id += 1
-        print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
+        fps_syncronizer.update()
+        # t1 = time.time()
         
     if opt.save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
@@ -271,6 +282,7 @@ def main():
     id_assigner.log_output()
 
     print(f'Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
+    print(f"total_frame/total_time: {frame_id/(time.time() - t0)} \t min FPS: {min_FPS} \t max FPS: {max_FPS}")
 
 
 
@@ -309,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
     # ID_Assigner Parser
-    parser.add_argument('--with_id_assigner', type=bool, default=True, help='with id assigner or not (True/False)')
+    parser.add_argument('--without_id_assigner', action='store_true', help='without id assigner')
     parser.add_argument('--entry_line_config', type=str, default='configs/entry_line_config2.json', help='entry line config path')
     parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
 
