@@ -34,11 +34,10 @@ class TrackState_(TrackState):
 class ID_Assigner(object):
     def __init__(
         self,
-        entry_line_config, 
-        entry_area_position,
+        entry_line_config,        
+        reid_model_path,
         distance_treshold = 0, 
-        reid_model_name = "osnet_x1_0", 
-        reid_model_path = 'models/model.pth.tar-60',
+        reid_model_name = "osnet_x1_0",
         save_feats = False
         ):
         print("CUDA is active?: ", torch.cuda.is_available())
@@ -47,8 +46,9 @@ class ID_Assigner(object):
         self.frame_id = 0
         self.last_id = 0
         self.distance_treshold = distance_treshold
-        self.entry_area_position = entry_area_position
-        self.entry_line_coef = self.calculate_line_coef(entry_line_config)
+        jfile = self.read_config(entry_line_config)
+        self.entry_area_position = jfile["entry_area_position"]
+        self.entry_line_coef = self.calculate_line_coef(jfile)
         self.output = []
         self.max_intra = 0
         self.event_logger = {
@@ -70,6 +70,13 @@ class ID_Assigner(object):
 
         print("===ReID model and ID Assigner ready!===")
 
+    def read_config(self, config):
+        # Opening JSON file
+        with open(config, 'r') as openfile:
+            # Reading from json file
+            j = json.load(openfile)
+        return j
+
     def reset(self):
         files = glob.glob('temp/*')
         for f in files:
@@ -80,12 +87,7 @@ class ID_Assigner(object):
         self.last_id += 1
         return self.last_id
 
-    def calculate_line_coef(self, config):
-        # Opening JSON file
-        with open(config, 'r') as openfile:
-            # Reading from json file
-            j = json.load(openfile)
-
+    def calculate_line_coef(self, j):
         #Definisi garis
         x = [float(j["x1"]), float(j["x2"])]
         y = [float(j["y1"]), float(j["y2"])]
@@ -228,7 +230,7 @@ class ID_Assigner(object):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print(self.calculate_intra_class_distance(ot[i]))
             # self.algorithm1(ot, i)
-            self.algorithm2(ot, i)
+            self.algorithm1(ot, i)
             
             # print("<=======================>")
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
@@ -399,7 +401,7 @@ class ID_Assigner(object):
                     return True
 
     def matching_db(self, feat_):
-        print("MATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("\nMATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.log_event("matching_db")
         ids = list(self.db.keys())
         print("data in database: ", ids)
@@ -414,16 +416,16 @@ class ID_Assigner(object):
         # calculate similarity
         query = np.array(query)
         gallery = np.array(gallery)
-        # print(query)
-        # print(gallery)
+        print(query)
+        print(gallery)
         ds = distance.cdist(
                     query,
                     gallery, 
-                    "euclidean"
+                    "sqeuclidean"
                 )[-1]
         ds = ds.tolist()
-        print(ds)
-        if min(ds) <20:
+        print("\tSCORE: ", ds)
+        if min(ds) <100:
             print(ds)
             match = ids[self.argmin(ds)]
             self.log_event("match")

@@ -3,3 +3,5 @@ temp/
 yolov7/
 deep-person-reid/
 test/temp
+configs/YOLOv7
+configs/OSNET

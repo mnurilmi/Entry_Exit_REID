@@ -49,7 +49,7 @@ def main():
 
     #Model Loading
     model = attempt_load(
-        opt.weights,
+        opt.yolo_weight,
         map_location = device
         )
     stride = int(model.stride.max())
@@ -88,8 +88,8 @@ def main():
 
     # ID Assigner Inisialization
     id_assigner = ID_Assigner(
-        opt.entry_line_config, 
-        opt.entry_area_position
+        entry_line_config = opt.entry_line_config,
+        reid_model_path = opt.osnet_weight
     )
     
     # Start Detection and Tracking
@@ -132,9 +132,8 @@ def main():
 
         # Tracking
         results = []
-        
         for i, det in enumerate(pred):  # detections per image
-            print("\n=========DETEKSI==========")
+            print("\n=========DETEKSI========== ")
             
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
@@ -143,12 +142,15 @@ def main():
 
             im1 = im0
             detections = []
+            confs = []
             if len(det):
                 boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
                 boxes = boxes.cpu().numpy()
                 detections = det.cpu().numpy()
                 detections[:, :4] = boxes
-
+                confs = det[:, 4]
+            print("yolo detected: ", len(det))
+            print("confs:",confs)
             online_targets = tracker.update(
                 detections
             )
@@ -193,9 +195,9 @@ def main():
 
                         if save_img or view_img:  # Add bbox to image
                             if opt.hide_labels_name:
-                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             else:
-                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             # print(tc)
                             cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
 
@@ -206,7 +208,7 @@ def main():
                             if FPS > max_FPS:
                                 max_FPS = FPS
                             print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
-                            cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                            cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             else:
                 for i in range(0, len(online_targets)):
@@ -228,9 +230,9 @@ def main():
 
                         if save_img or view_img:  # Add bbox to image
                             if opt.hide_labels_name:
-                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             else:
-                                label = '{0:}-{1:.2f}-{2:}-{3:}'.format(tid, td, tls, frame_id)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
 
                             # FPS = int(1/(time.time() - t1))
                             FPS = int(fps_syncronizer.get_FPS())
@@ -239,7 +241,7 @@ def main():
                             if FPS > max_FPS:
                                 max_FPS = FPS
                             print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
-                            cv2.putText(im0, f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                            cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)              
             # print("\n")
             p = Path(p)
@@ -292,10 +294,10 @@ if __name__ == "__main__":
     parser.add_argument('--project', default='runs/detect', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo_weight', nargs='+', type=str, help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=1920, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.09, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.9, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.7, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
@@ -311,7 +313,7 @@ if __name__ == "__main__":
 
     # ByteTrack Parser
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=10, help="the frames for keep lost tracks")
+    parser.add_argument("--track_buffer", type=int, default=5, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.8, help="matching threshold for tracking")
     parser.add_argument(
         "--aspect_ratio_thresh", type=float, default=1.6,
@@ -320,10 +322,14 @@ if __name__ == "__main__":
     parser.add_argument('--min_box_area', type=float, default=10, help='filter out tiny boxes')
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
+    # REID Model Parser (OSNET model)
+    parser.add_argument('--osnet_weight', type=str, help='model.pt path')
+    
+
     # ID_Assigner Parser
     parser.add_argument('--without_id_assigner', action='store_true', help='without id assigner')
-    parser.add_argument('--entry_line_config', type=str, default='configs/entry_line_config2.json', help='entry line config path')
-    parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
+    parser.add_argument('--entry_line_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry line config path')
+    # parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
 
     opt = parser.parse_args()
     print(opt)

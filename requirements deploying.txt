@@ -1,0 +1,20 @@
+# =====requirements testing jetson=====
+numpy
+scipy
+Pillow=6.2.1
+matplotlib
+gdown
+PyYAML>=5.3.1
+requests>=2.23.0
+tqdm>=4.41.0
+pandas>=1.1.4
+seaborn>=0.11.0
+ipython  # interactive notebook
+psutil  # system utilization
+thop  # FLOPs computation
+lap
+tensorboard
+# opencv-python # cannot installed on ARM64, instead install it via https://www.forecr.io/blogs/installation/how-to-install-opencv-with-cuda-support
+
+imageio
+yacs
