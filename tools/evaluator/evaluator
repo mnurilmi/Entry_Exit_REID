@@ -35,11 +35,11 @@ class Evaluator(object):
             disp.plot()
             plt.show()
 
-# if __name__ == "__main__":
-#     labels = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
-#     y_actual = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
-#     y_pred = [2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
-#     print(len(y_pred))
-#     print(len(y_actual))
-#     print(len(labels))
-#     Evaluator(y_actual, y_pred, labels)
+if __name__ == "__main__":
+    labels = [i for i in range(12)]
+    y_actual = [1,2,3,4,5,6]
+    y_pred = [1,2,11,4,12,6]
+    print(len(y_pred))
+    print(len(y_actual))
+    print(len(labels))
+    Evaluator(y_actual, y_pred, labels)

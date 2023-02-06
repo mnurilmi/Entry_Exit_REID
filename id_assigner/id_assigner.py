@@ -128,8 +128,8 @@ class ID_Assigner(object):
         centroids, patches = self.get_centroids_and_patches(ot, im1)     # matrix operation and iteration process
         distances = self.calculate_distance2line(centroids)         # matrix operation calculation
         feats = self.extract_feature(patches)                       # One inference process
-        print(len(patches))
-        print(feats.shape)
+        # print(len(patches))
+        # print(feats.shape)
         self.update_tracks(ot, feats, distances, centroids)                                # iteration process
         self.set_ids(ot, distances)                                 # iteration process
 
@@ -225,7 +225,7 @@ class ID_Assigner(object):
             ot[i].set_centroid((centroids[i][0],centroids[i][1]))
 
     def set_ids(self, ot, distances):
-        print("===set ids===   ", len(ot), "tracks online")
+        # print("===set ids===   ", len(ot), "tracks online")
         for i in range(len(ot)):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print(self.calculate_intra_class_distance(ot[i]))
@@ -235,7 +235,7 @@ class ID_Assigner(object):
             # print("<=======================>")
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print("\n")
-        print("data in database: ", self.db.keys())
+        # print("data in database: ", self.db.keys())
 
     def algorithm1(self, ot, i):
         """
@@ -272,7 +272,7 @@ class ID_Assigner(object):
         else:
             if not is_passed:
                 if tls == TrackState_.Matching:
-                    print(feat)
+                    # print(feat)
                     # Exit event condition; append output
                     self.output.append(ot[i].get_id())
 
@@ -401,10 +401,10 @@ class ID_Assigner(object):
                     return True
 
     def matching_db(self, feat_):
-        print("\nMATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # print("\nMATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.log_event("matching_db")
         ids = list(self.db.keys())
-        print("data in database: ", ids)
+        # print("data in database: ", ids)
 
         if len(ids) == 0:
             return False, None
@@ -416,21 +416,21 @@ class ID_Assigner(object):
         # calculate similarity
         query = np.array(query)
         gallery = np.array(gallery)
-        print(query)
-        print(gallery)
+        # print(query)
+        # print(gallery)
         ds = distance.cdist(
                     query,
                     gallery, 
                     "sqeuclidean"
                 )[-1]
         ds = ds.tolist()
-        print("\tSCORE: ", ds)
+        # print("\tSCORE: ", ds)
         if min(ds) <100:
-            print(ds)
+            # print(ds)
             match = ids[self.argmin(ds)]
             self.log_event("match")
             self.event_logger["frame_indices"].append(self.frame_id)
-            print("MATCHED ID: ", match)
+            # print("MATCHED ID: ", match)
             o = self.db[match]["registered_object"]
             # del self.db["match"]
             return True, o
@@ -445,7 +445,7 @@ class ID_Assigner(object):
 
     def save_2_db(self, t):
         # saving feat to db
-        print(t.get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # print(t.get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.log_event("saving_db")
         self.db[t.get_id()] = {
             "registered_object": t

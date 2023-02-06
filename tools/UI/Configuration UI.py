@@ -82,12 +82,14 @@ if __name__ == "__main__":
     parser.add_argument('--source', help='testing datas location')
     opt = parser.parse_args()
 
-    vid_name = opt.source.split("\\")[-1]
-    # print(vid_name)
-    video_file = os.path.join(opt.source , vid_name + ".mp4")
-    out = os.path.join(opt.source , vid_name + ".json")
+    # vid_name = opt.source.split("\\")[-1]
 
-    # print(video_file)
+    # print(vid_name)
+    video_file = os.path.join(opt.source)
+    out = os.path.join(opt.source.split(".")[0] + ".json")
+
+    print(video_file)
+    print(out)
 
     if getFirstFrame(video_file):
         line_color = (0, 255, 0)

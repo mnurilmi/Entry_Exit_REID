@@ -17,13 +17,15 @@ import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 
-from yolov7.models.experimental import attempt_load
-from yolov7.utils.datasets import LoadStreams, LoadImages
-from yolov7.utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
-    apply_classifier, \
-    scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
-from yolov7.utils.plots import plot_one_box
-from yolov7.utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
+# from yolov7.models.experimental import attempt_load
+# from yolov7.utils.datasets import LoadStreams, LoadImages
+# from yolov7.utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
+#     apply_classifier, \
+#     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
+# from yolov7.utils.plots import plot_one_box
+# from yolov7.utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
+import tensorrt as trt
+from collections import OrderedDict,namedtuple
 
 from tracker.byte_tracker import BYTETracker
 from tracker.tracking_utils.timer import Timer
@@ -31,6 +33,50 @@ from tracker.tracking_utils.timer import Timer
 from id_assigner.id_assigner import ID_Assigner
 from fps_sync.fps_sync import fps_sync
 
+
+def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleup=True, stride=32):
+    # Resize and pad image while meeting stride-multiple constraints
+    shape = im.shape[:2]  # current shape [height, width]
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    # Scale ratio (new / old)
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    if not scaleup:  # only scale down, do not scale up (for better val mAP)
+        r = min(r, 1.0)
+
+    # Compute padding
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+
+    if auto:  # minimum rectangle
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
+
+    dw /= 2  # divide padding into 2 sides
+    dh /= 2
+
+    if shape[::-1] != new_unpad:  # resize
+        im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    return im, r, (dw, dh)
+
+# def postprocess(boxes,r,dwdh):
+#     dwdh = torch.tensor(dwdh*2).to(boxes.device)
+#     boxes -= dwdh
+#     boxes /= r
+#     return boxes
+
+def preprocess(image):
+    image, ratio, dwdh = letterbox(image, auto=False)
+    image = image.transpose((2, 0, 1))
+    image = np.expand_dims(image, 0)
+    image = np.ascontiguousarray(image)
+    im = image.astype(np.float32)
+    im = torch.from_numpy(im).to(device)
+    im/=255
+    return im
 
 # Start Code
 def main():
@@ -47,28 +93,28 @@ def main():
     device = select_device(opt.device)
     half = device.type != "cpu"
 
-    #Model Loading
-    model = attempt_load(
-        opt.yolo_weight,
-        map_location = device
-        )
+    # Model Loading (TensorRT)
+    Binding = namedtuple('Binding', ('name', 'dtype', 'shape', 'data', 'ptr'))
+    logger = trt.Logger(trt.Logger.INFO)
+    trt.init_libnvinfer_plugins(logger, namespace="")
+    with open(opt.yolo_weight, 'rb') as f, trt.Runtime(logger) as runtime:
+        model = runtime.deserialize_cuda_engine(f.read())
+    bindings = OrderedDict()
+    for index in range(model.num_bindings):
+        name = model.get_binding_name(index)
+        dtype = trt.nptype(model.get_binding_dtype(index))
+        shape = tuple(model.get_binding_shape(index))
+        data = torch.from_numpy(np.empty(shape, dtype=np.dtype(dtype))).to(device)
+        bindings[name] = Binding(name, dtype, shape, data, int(data.data_ptr()))
+    binding_addrs = OrderedDict((n, d.ptr) for n, d in bindings.items())
+    context = model.create_execution_context()
+
     stride = int(model.stride.max())
-    # print(stride)
     img_size = check_img_size(
         opt.img_size,
         s = stride
         )
 
-    if opt.trace:
-        model = TracedModel(
-            model,
-            device,
-            opt.img_size
-        )
-    
-    if half:
-        model.half()
-    
     # Set Dataloader
     vid_path, vid_writer = None, None
     if webcam:
@@ -109,28 +155,30 @@ def main():
     fps_syncronizer = fps_sync()
     for path, img, im0s, vid_cap, in dataset:
         # t1 = time_synchronized()
+        img = preprocess(img)
+        # warmup for 10 times
+            for _ in range(10):
+                tmp = torch.randn(1,3,640,640).to(device)
+                binding_addrs['images'] = int(tmp.data_ptr())
+                context.execute_v2(list(binding_addrs.values()))
+        binding_addrs['images'] = int(im.data_ptr())
+        context.execute_v2(list(binding_addrs.values()))
 
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()
-        img /= 255.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
-        
         # Model inference
-        pred = model(
-            img,
-            augment = opt.augment)[0]
+        nums = bindings['num_dets'].data
+        boxes = bindings['det_boxes'].data
+        scores = bindings['det_scores'].data
+        classes = bindings['det_classes'].data
+        boxes = boxes[0,:nums[0][0]]
+        scores = scores[0,:nums[0][0]]
+        classes = classes[0,:nums[0][0]]
+        scores = torch.transpose(scores[np.newaxis, :], 0, 1)
+        classes = torch.transpose(classes[np.newaxis, :], 0, 1)
+        pred =  torch.cat((boxes, scores, classes), 1)
+        pred = torch.tensor(pred)
 
-        # NMS
-        pred = non_max_suppression(
-            pred,
-            opt.conf_thres,
-            opt.iou_thres,
-            classes = opt.classes,
-            agnostic = opt.agnostic_nms
-        )
         # t2 = time_synchronized()
-        # print(pred)
+
         # Tracking
         results = []
         for i, det in enumerate(pred):  # detections per image
@@ -144,18 +192,14 @@ def main():
             im1 = im0
             detections = []
             confs = []
-            # print(det)
-            # print(det.shape)
             if len(det):
-                # print(det[:, :4])
-                # print(img.shape[2:])
                 boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
                 boxes = boxes.cpu().numpy()
                 detections = det.cpu().numpy()
                 detections[:, :4] = boxes
                 confs = det[:, 4]
-            # print("yolo detected: ", len(det))
-            # print("confs:",confs)
+            print("yolo detected: ", len(det))
+            print("confs:",confs)
             online_targets = tracker.update(
                 detections
             )
@@ -170,7 +214,7 @@ def main():
             # print(len(detections))
             # print(len(online_targets))
             if not opt.without_id_assigner:
-                # print("===ID ASSIGNER UPDATE===: ", frame_id)
+                print("===ID ASSIGNER UPDATE===: ", frame_id)
                 online_targets= id_assigner.update(
                     online_targets,
                     im0
@@ -187,7 +231,7 @@ def main():
                     td = online_targets[i].get_distance()       # distance to entry line
                     tls = online_targets[i].decode_state(online_targets[i].get_last_state())    # track state
                     tc = online_targets[i].get_centroid()       # track centroid
-                    conf = confs[i]
+
                     if tlwh[2] * tlwh[3] > opt.min_box_area:
                         online_tlwhs.append(tlwh)
                         online_ids.append(tid)
@@ -200,9 +244,9 @@ def main():
 
                         if save_img or view_img:  # Add bbox to image
                             if opt.hide_labels_name:
-                                label = '{0:}-{1:.2f}-{2:.2f}-{3:}'.format(tid, conf, td, tls)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             else:
-                                label = '{0:}-{1:.2f}-{2:.2f}-{3:}'.format(tid, conf, td, tls)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             # print(tc)
                             cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
 
@@ -223,7 +267,6 @@ def main():
 
                     td = -1
                     tls = -1
-                    conf = confs[i]
                     if tlwh[2] * tlwh[3] > opt.min_box_area:
                         online_tlwhs.append(tlwh)
                         online_ids.append(tid)
@@ -236,9 +279,9 @@ def main():
 
                         if save_img or view_img:  # Add bbox to image
                             if opt.hide_labels_name:
-                                label = '{0:}-{1:.2f}-{2:.2f}-{3:}'.format(tid, conf, td, tls)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
                             else:
-                                label = '{0:}-{1:.2f}-{2:.2f}-{3:}'.format(tid, conf, td, tls)
+                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
 
                             # FPS = int(1/(time.time() - t1))
                             FPS = int(fps_syncronizer.get_FPS())
@@ -250,32 +293,32 @@ def main():
                             cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)              
             # print("\n")
-            # p = Path(p)
-            # save_path = str(save_dir / p.name)
+            p = Path(p)
+            save_path = str(save_dir / p.name)
 
-            # # Stream results
-            # if opt.view_img:
-            #     cv2.imshow('ByteTrack', im0)
-            #     cv2.waitKey(1)  # 1 millisecond
+            # Stream results
+            if opt.view_img:
+                cv2.imshow('ByteTrack', im0)
+                cv2.waitKey(1)  # 1 millisecond
 
-            # # Save results (image with detections)
-            # if save_img:
-            #     if dataset.mode == 'image':
-            #         cv2.imwrite(save_path, im0)
-            #     else:  # 'video' or 'stream'
-            #         if vid_path != save_path:  # new video
-            #             vid_path = save_path
-            #             if isinstance(vid_writer, cv2.VideoWriter):
-            #                 vid_writer.release()  # release previous video writer
-            #             if vid_cap:  # video
-            #                 fps = vid_cap.get(cv2.CAP_PROP_FPS)
-            #                 w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            #                 h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            #             else:  # stream
-            #                 fps, w, h = 30, im0.shape[1], im0.shape[0]
-            #                 save_path += '.mp4'
-            #             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-            #         vid_writer.write(im0)
+            # Save results (image with detections)
+            if save_img:
+                if dataset.mode == 'image':
+                    cv2.imwrite(save_path, im0)
+                else:  # 'video' or 'stream'
+                    if vid_path != save_path:  # new video
+                        vid_path = save_path
+                        if isinstance(vid_writer, cv2.VideoWriter):
+                            vid_writer.release()  # release previous video writer
+                        if vid_cap:  # video
+                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        else:  # stream
+                            fps, w, h = 30, im0.shape[1], im0.shape[0]
+                            save_path += '.mp4'
+                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                    vid_writer.write(im0)
 
         frame_id += 1
         fps_syncronizer.update()
@@ -292,8 +335,6 @@ def main():
     print(f'Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
     print(f"total_frame/total_time: {frame_id/(time.time() - t0)} \t min FPS: {min_FPS} \t max FPS: {max_FPS}")
 
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # YOLOv7 parser
@@ -303,7 +344,7 @@ if __name__ == "__main__":
     parser.add_argument('--yolo_weight', nargs='+', type=str, help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=1920, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.9, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.7, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
@@ -319,7 +360,7 @@ if __name__ == "__main__":
 
     # ByteTrack Parser
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
+    parser.add_argument("--track_buffer", type=int, default=5, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.8, help="matching threshold for tracking")
     parser.add_argument(
         "--aspect_ratio_thresh", type=float, default=1.6,
@@ -341,9 +382,4 @@ if __name__ == "__main__":
     print(opt)
 
     with torch.no_grad():
-        if opt.update:
-            for opt.weights in ["yolov7.pt"]:
-                main()
-                strip_optimizer(opt.weights)
-        else:
-            main()
+        main()
