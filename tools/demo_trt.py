@@ -17,15 +17,17 @@ import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 
-# from yolov7.models.experimental import attempt_load
-# from yolov7.utils.datasets import LoadStreams, LoadImages
-# from yolov7.utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
-#     apply_classifier, \
-#     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
-# from yolov7.utils.plots import plot_one_box
-# from yolov7.utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 import tensorrt as trt
+import numpy as np
 from collections import OrderedDict,namedtuple
+# from yolov7.models.experimental import attempt_load
+from yolov7.utils.datasets import LoadStreams, LoadImages
+from yolov7.utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
+    apply_classifier, \
+    scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
+from yolov7.utils.plots import plot_one_box
+from yolov7.utils.torch_utils import select_device
+
 
 from tracker.byte_tracker import BYTETracker
 from tracker.tracking_utils.timer import Timer
@@ -68,7 +70,8 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleu
 #     boxes /= r
 #     return boxes
 
-def preprocess(image):
+def preprocess(image, device):
+    print(image.shape)
     image, ratio, dwdh = letterbox(image, auto=False)
     image = image.transpose((2, 0, 1))
     image = np.expand_dims(image, 0)
@@ -76,7 +79,7 @@ def preprocess(image):
     im = image.astype(np.float32)
     im = torch.from_numpy(im).to(device)
     im/=255
-    return im
+    return im, ratio, dwdh
 
 # Start Code
 def main():
@@ -94,10 +97,12 @@ def main():
     half = device.type != "cpu"
 
     # Model Loading (TensorRT)
+    w = opt.yolo_weight[-1]
+    # print(w)
     Binding = namedtuple('Binding', ('name', 'dtype', 'shape', 'data', 'ptr'))
     logger = trt.Logger(trt.Logger.INFO)
     trt.init_libnvinfer_plugins(logger, namespace="")
-    with open(opt.yolo_weight, 'rb') as f, trt.Runtime(logger) as runtime:
+    with open(w, 'rb') as f, trt.Runtime(logger) as runtime:
         model = runtime.deserialize_cuda_engine(f.read())
     bindings = OrderedDict()
     for index in range(model.num_bindings):
@@ -109,7 +114,7 @@ def main():
     binding_addrs = OrderedDict((n, d.ptr) for n, d in bindings.items())
     context = model.create_execution_context()
 
-    stride = int(model.stride.max())
+    stride = 32
     img_size = check_img_size(
         opt.img_size,
         s = stride
@@ -124,7 +129,7 @@ def main():
     else:
         dataset = LoadImages(opt.source, img_size=img_size, stride=stride)
 
-    names = model.module.names if hasattr(model, "module") else model.names
+    names = model.module.name if hasattr(model, "module") else model.name
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(100)]
 
     # Tracker Inisialization
@@ -155,12 +160,8 @@ def main():
     fps_syncronizer = fps_sync()
     for path, img, im0s, vid_cap, in dataset:
         # t1 = time_synchronized()
-        img = preprocess(img)
-        # warmup for 10 times
-            for _ in range(10):
-                tmp = torch.randn(1,3,640,640).to(device)
-                binding_addrs['images'] = int(tmp.data_ptr())
-                context.execute_v2(list(binding_addrs.values()))
+        img_ = img.copy().transpose(1,2,0)
+        im, ratio, dwdh = preprocess(img_, device)
         binding_addrs['images'] = int(im.data_ptr())
         context.execute_v2(list(binding_addrs.values()))
 
@@ -172,18 +173,23 @@ def main():
         boxes = boxes[0,:nums[0][0]]
         scores = scores[0,:nums[0][0]]
         classes = classes[0,:nums[0][0]]
+
         scores = torch.transpose(scores[np.newaxis, :], 0, 1)
         classes = torch.transpose(classes[np.newaxis, :], 0, 1)
         pred =  torch.cat((boxes, scores, classes), 1)
-        pred = torch.tensor(pred)
-
+        pred = [torch.tensor(pred)]
         # t2 = time_synchronized()
-
+  
         # Tracking
         results = []
         for i, det in enumerate(pred):  # detections per image
             print("\n=========DETEKSI========== ")
-            
+            det[:, 1] = det[:, 1]-dwdh[1]
+            det[:, 3] = det[:, 3]-dwdh[1]
+            det[:, 0] = det[:, 0]-dwdh[0]
+            det[:, 2] = det[:, 2]-dwdh[0]
+            # print(det)
+            # print(det.shape)
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
             else:
@@ -193,13 +199,14 @@ def main():
             detections = []
             confs = []
             if len(det):
-                boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
-                boxes = boxes.cpu().numpy()
+                # print(img.shape[1:])
+                boxes_ = scale_coords(img.shape[1:], det[:, :4], im0.shape)
+                boxes_ = boxes.cpu().numpy()
                 detections = det.cpu().numpy()
-                detections[:, :4] = boxes
+                detections[:, :4] = boxes_
                 confs = det[:, 4]
-            print("yolo detected: ", len(det))
-            print("confs:",confs)
+            # print("yolo detected: ", len(det))
+            # print("confs:",confs)
             online_targets = tracker.update(
                 detections
             )
@@ -214,7 +221,7 @@ def main():
             # print(len(detections))
             # print(len(online_targets))
             if not opt.without_id_assigner:
-                print("===ID ASSIGNER UPDATE===: ", frame_id)
+                # print("===ID ASSIGNER UPDATE===: ", frame_id)
                 online_targets= id_assigner.update(
                     online_targets,
                     im0
@@ -260,7 +267,14 @@ def main():
                             cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                             plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
             else:
+                tlwh = []
+                tlbr = []
+                tid = []
+
+                td = -1
+                tls = -1
                 for i in range(0, len(online_targets)):
+                    print("haha")
                     tlwh = online_targets[i].tlwh
                     tlbr = online_targets[i].tlbr
                     tid = online_targets[i].track_id
@@ -276,22 +290,31 @@ def main():
                         results.append(
                             f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
                         )
+                    if save_img or view_img:  # Add bbox to image
+                        if opt.hide_labels_name:
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
+                        else:
+                            label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
 
-                        if save_img or view_img:  # Add bbox to image
-                            if opt.hide_labels_name:
-                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
-                            else:
-                                label = '{0:}-{1:.2f}-{2:}'.format(tid, td, tls)
+                        # FPS = int(1/(time.time() - t1))
+                        FPS = int(fps_syncronizer.get_FPS())
+                        if FPS < min_FPS and not FPS == 0:
+                            min_FPS = FPS 
+                        if FPS > max_FPS:
+                            max_FPS = FPS
+                        print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
+                        cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                        plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)   
+                if len(online_targets) == 0:
+                    # FPS = int(1/(time.time() - t1))
+                    FPS = int(fps_syncronizer.get_FPS())
+                    if FPS < min_FPS and not FPS == 0:
+                        min_FPS = FPS 
+                    if FPS > max_FPS:
+                        max_FPS = FPS
+                    print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
+                    cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
 
-                            # FPS = int(1/(time.time() - t1))
-                            FPS = int(fps_syncronizer.get_FPS())
-                            if FPS < min_FPS and not FPS == 0:
-                                min_FPS = FPS 
-                            if FPS > max_FPS:
-                                max_FPS = FPS
-                            print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}") 
-                            cv2.putText(im0, f"FID: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
-                            plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)              
             # print("\n")
             p = Path(p)
             save_path = str(save_dir / p.name)
