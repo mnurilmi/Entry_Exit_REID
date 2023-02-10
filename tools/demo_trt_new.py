@@ -30,6 +30,11 @@ from timer.timer import Timer
 from id_assigner.id_assigner import ID_Assigner
 import json
 
+import tensorrt as trt
+import numpy as np
+from collections import OrderedDict,namedtuple
+from yolov7.utils.datasets import letterbox
+
 def read_config(config):
     # Opening JSON file
     with open(config, 'r') as openfile:
@@ -39,6 +44,51 @@ def read_config(config):
 
 def get_entry_line_points(j):
     return [float(j["x1"]), float(j["x2"])], [float(j["y1"]), float(j["y2"])]
+
+def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleup=True, stride=32):
+    # Resize and pad image while meeting stride-multiple constraints
+    shape = im.shape[:2]  # current shape [height, width]
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    # Scale ratio (new / old)
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    if not scaleup:  # only scale down, do not scale up (for better val mAP)
+        r = min(r, 1.0)
+
+    # Compute padding
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+
+    if auto:  # minimum rectangle
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
+
+    dw /= 2  # divide padding into 2 sides
+    dh /= 2
+
+    if shape[::-1] != new_unpad:  # resize
+        im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    return im, r, (dw, dh)
+
+# def postprocess(boxes,r,dwdh):
+#     dwdh = torch.tensor(dwdh*2).to(boxes.device)
+#     boxes -= dwdh
+#     boxes /= r
+#     return boxes
+
+def preprocess(image, device):
+    print(image.shape)
+    image, ratio, dwdh = letterbox(image, auto=False)
+    image = image.transpose((2, 0, 1))
+    image = np.expand_dims(image, 0)
+    image = np.ascontiguousarray(image)
+    im = image.astype(np.float32)
+    im = torch.from_numpy(im).to(device)
+    im/=255
+    return im, ratio, dwdh
 
 # Start Code
 def main():
@@ -56,13 +106,25 @@ def main():
     device = select_device(opt.device)
     half = device.type != "cpu"
 
-    #Model Loading
-    model = attempt_load(
-        opt.yolo_weight,
-        map_location = device
-        )
-    stride = int(model.stride.max())
-    # print(stride)
+    # Model Loading (TensorRT)
+    w = opt.yolo_weight[-1]
+    # print(w)
+    Binding = namedtuple('Binding', ('name', 'dtype', 'shape', 'data', 'ptr'))
+    logger = trt.Logger(trt.Logger.INFO)
+    trt.init_libnvinfer_plugins(logger, namespace="")
+    with open(w, 'rb') as f, trt.Runtime(logger) as runtime:
+        model = runtime.deserialize_cuda_engine(f.read())
+    bindings = OrderedDict()
+    for index in range(model.num_bindings):
+        name = model.get_binding_name(index)
+        dtype = trt.nptype(model.get_binding_dtype(index))
+        shape = tuple(model.get_binding_shape(index))
+        data = torch.from_numpy(np.empty(shape, dtype=np.dtype(dtype))).to(device)
+        bindings[name] = Binding(name, dtype, shape, data, int(data.data_ptr()))
+    binding_addrs = OrderedDict((n, d.ptr) for n, d in bindings.items())
+    context = model.create_execution_context()
+
+    stride = 32
     img_size = check_img_size(
         opt.img_size,
         s = stride
@@ -74,11 +136,8 @@ def main():
             device,
             opt.img_size
         )
-    
-    if half:
-        model.half()
 
-    names = model.module.names if hasattr(model, "module") else model.names
+    names = ["person"]
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(100)]
 
     # Tracker Inisialization
@@ -90,7 +149,6 @@ def main():
     jfile = read_config(opt.entry_line_config)
     x, y = get_entry_line_points(jfile)
     # ID Assigner Inisialization
-
     if not opt.without_id_assigner:
         """
             https://github.com/KaiyangZhou/deep-person-reid
@@ -114,7 +172,7 @@ def main():
         dataset = LoadStreams(opt.source, img_size=img_size, stride=stride)
     else:
         dataset = LoadImages(opt.source, img_size=img_size, stride=stride)
-
+        
     timer_init.toc()
     print("Inizialization Time: ", timer_init.average_time, " s\n\n")
 
@@ -124,44 +182,58 @@ def main():
 
     for path, img, im0s, vid_cap, in dataset:
         timer.tic()
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()
-        img /= 255.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+
+        img_ = img.copy().transpose(1,2,0)
+        im, ratio, dwdh = preprocess(img_, device)
+        binding_addrs['images'] = int(im.data_ptr())
+        context.execute_v2(list(binding_addrs.values()))
+
+        # Model inference
+        nums = bindings['num_dets'].data
+        boxes = bindings['det_boxes'].data
+        scores = bindings['det_scores'].data
+        classes = bindings['det_classes'].data
+        boxes = boxes[0,:nums[0][0]]
+        scores = scores[0,:nums[0][0]]
+        classes = classes[0,:nums[0][0]]
+
+        scores = torch.transpose(scores[np.newaxis, :], 0, 1)
+        classes = torch.transpose(classes[np.newaxis, :], 0, 1)
+        pred =  torch.cat((boxes, scores, classes), 1)
+        # pred = [torch.tensor(pred)]
 
         print("\n=========DETEKSI========== ")
-        # Model inference
-        with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-            pred = model(
-                img,
-                augment = opt.augment)[0]
-
-        # NMS
-        pred = non_max_suppression(
-            pred,
-            opt.conf_thres,
-            opt.iou_thres,
-            classes = opt.classes,
-            agnostic = opt.agnostic_nms
-        )
         # print(pred)
+        # print(boxes)
+        # print(scores)
 
         # Tracking
         p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
         
         # visualize entry line
         cv2.line(im0,(int(x[0]),int(y[0])),(int(x[1]),int(y[1])),(0,255,0),1)
+
+        det = pred
+        print(pred)
+        print(pred.size())
+        print(len(pred))
+        print(len(det))
+        # print(len(det))
+        det[:, 1] = det[:, 1]-dwdh[1]
+        det[:, 3] = det[:, 3]-dwdh[1]
+        det[:, 0] = det[:, 0]-dwdh[0]
+        det[:, 2] = det[:, 2]-dwdh[0]
         results = []
-        det = pred[0]
+        
         detections = []
         confs = []
         online_tlwhs = []
         online_tid = []
         online_tlbr = []
 
-        if len(det):
-            boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
+        if  det.size()[0] != 0:
+            print(img.shape)
+            boxes = scale_coords(img.shape[1:], det[:, :4], im0.shape)
             boxes = boxes.cpu().numpy()
             detections = det.cpu().numpy()
             detections[:, :4] = boxes
@@ -213,7 +285,7 @@ def main():
             max_FPS = FPS
         print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}")
         cv2.putText(im0, f"Frame: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
-                    
+                
         p = Path(p)
         save_path = str(save_dir / p.name)
         # Stream results
@@ -301,9 +373,4 @@ if __name__ == "__main__":
     print(opt)
 
     with torch.no_grad():
-        if opt.update:
-            for opt.weights in ["yolov7.pt"]:
-                main()
-                strip_optimizer(opt.weights)
-        else:
-            main()
+        main()

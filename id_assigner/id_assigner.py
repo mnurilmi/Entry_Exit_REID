@@ -13,7 +13,6 @@ author:
 import numpy as np
 import math
 import time
-import json
 import cv2
 import glob
 import os
@@ -32,12 +31,13 @@ class TrackState_(TrackState):
     Matching = 5
 
 class ID_Assigner(object):
+    # reid_model_name -> 'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 'osnet_ibn_x1_0'
     def __init__(
         self,
         entry_line_config,        
         reid_model_path,
         distance_treshold = 0, 
-        reid_model_name = "osnet_x1_0",
+        reid_model_name = "osnet_ibn_x1_0",
         save_feats = False
         ):
         print("CUDA is active?: ", torch.cuda.is_available())
@@ -46,7 +46,7 @@ class ID_Assigner(object):
         self.frame_id = 0
         self.last_id = 0
         self.distance_treshold = distance_treshold
-        jfile = self.read_config(entry_line_config)
+        jfile = entry_line_config
         self.entry_area_position = jfile["entry_area_position"]
         self.entry_line_coef = self.calculate_line_coef(jfile)
         self.output = []
@@ -67,15 +67,8 @@ class ID_Assigner(object):
         if save_feats:
             # Reset folder to save patches
             self.reset()
-
+        self.temp = []
         print("===ReID model and ID Assigner ready!===")
-
-    def read_config(self, config):
-        # Opening JSON file
-        with open(config, 'r') as openfile:
-            # Reading from json file
-            j = json.load(openfile)
-        return j
 
     def reset(self):
         files = glob.glob('temp/*')
@@ -133,8 +126,8 @@ class ID_Assigner(object):
         self.update_tracks(ot, feats, distances, centroids)                                # iteration process
         self.set_ids(ot, distances)                                 # iteration process
 
-        # visualize entry line
-        cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),1)
+        # # visualize entry line
+        # cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),1)
 
         # tracks_passed = self.check_passed_the_line(distances)
         return ot
@@ -258,22 +251,25 @@ class ID_Assigner(object):
             else:
                 # matching db
                 is_match, registered_object = self.matching_db(feat)
+                ot[i].set_last_state(TrackState_.Matching)
                 if is_match:
                     ot[i].set_id(registered_object.get_id())
                     # ot[i].set_id(99)
                     # print(feat)
-                    ot[i].set_last_state(TrackState_.Matching)
                 else:
                     # set new id and start tracking as usual
                     ot[i].set_id(self.next_id())
 
-                    self.save_2_db(ot[i])
-                    ot[i].set_last_state(TrackState_.In) # transition Tracked to In
+                    # self.save_2_db(ot[i])
+                    # ot[i].set_last_state(TrackState_.In) # transition Tracked to In
         else:
             if not is_passed:
                 if tls == TrackState_.Matching:
                     # print(feat)
-                    # Exit event condition; append output
+                    # Exit event condition; append output and id match
+                    self.output.append(ot[i].get_id())
+                elif tls == TrackState_.In:
+                    # Exit event condition; append output and doesnt match
                     self.output.append(ot[i].get_id())
 
                 # tracking as usual until cross/pass the entry line
@@ -424,8 +420,14 @@ class ID_Assigner(object):
                     "sqeuclidean"
                 )[-1]
         ds = ds.tolist()
-        # print("\tSCORE: ", ds)
-        if min(ds) <100:
+        print("\tSCORE: ", ds)
+        # print(sum(ds)/len(ds) - min(ds))
+        # self.temp.append(sum(ds)/len(ds) - min(ds))
+        # l = list(map(int, ds))
+        # print(l[(l>np.quantile(l,0.1)) & (l<np.quantile(l,0.9))].tolist())
+        # if min(ds) <80:
+        a = list(map(int, ds))
+        if (not min(a)>np.quantile(a,0.1)) and (sum(a)/len(a) - min(a)) > 80:
             # print(ds)
             match = ids[self.argmin(ds)]
             self.log_event("match")
@@ -493,3 +495,4 @@ class ID_Assigner(object):
     
     def log_output(self):
         print("Output:", self.output)
+        print(self.temp)
