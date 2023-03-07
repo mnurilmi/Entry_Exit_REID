@@ -1,6 +1,6 @@
 """
 Description:
-    Class: ID_Assigner
+    Class: Entry_Exit_REID
     This class is used for entry exit reid implementation.
     The implementation combains yolov7 (detector), bytetrack
     (tracker), and id assigner it self to solve the problem.
@@ -30,14 +30,14 @@ class TrackState_(TrackState):
     In = 4
     Matching = 5
 
-class ID_Assigner(object):
+class Entry_Exit_REID(object):
     # reid_model_name -> 'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 'osnet_ibn_x1_0'
     def __init__(
         self,
         entry_line_config,        
         reid_model_path,
         distance_treshold = 0, 
-        reid_model_name = "osnet_ibn_x1_0",
+        reid_model_name = "osnet_x1_0",
         save_feats = False
         ):
         print("CUDA is active?: ", torch.cuda.is_available())
@@ -258,19 +258,26 @@ class ID_Assigner(object):
                     # print(feat)
                 else:
                     # set new id and start tracking as usual
-                    ot[i].set_id(self.next_id())
+                    # ot[i].set_id(self.next_id())
+                    ot[i].set_id(self.last_id+1) # candidate id, not fix, so the last id for the system still same
 
                     # self.save_2_db(ot[i])
                     # ot[i].set_last_state(TrackState_.In) # transition Tracked to In
         else:
             if not is_passed:
                 if tls == TrackState_.Matching:
+                    if ot[i].get_id() == self.last_id+1:
+                         ot[i].set_id(self.next_id())   # if the system believes it is a new person, then id is the next id
+                    else:                               # otherwise the system id will not be changed and the system sure that is registered person
+                        pass
                     # print(feat)
+
                     # Exit event condition; append output and id match
                     self.output.append(ot[i].get_id())
-                elif tls == TrackState_.In:
-                    # Exit event condition; append output and doesnt match
-                    self.output.append(ot[i].get_id())
+                # elif tls == TrackState_.In:
+
+                #     # Exit event condition; append output and doesnt match
+                #     self.output.append(ot[i].get_id())
 
                 # tracking as usual until cross/pass the entry line
                 ot[i].set_last_state(TrackState_.Tracked)
@@ -414,10 +421,15 @@ class ID_Assigner(object):
         gallery = np.array(gallery)
         # print(query)
         # print(gallery)
+        # ds = distance.cdist(
+        #             query,
+        #             gallery, 
+        #             "sqeuclidean"
+        #         )[-1]
         ds = distance.cdist(
                     query,
                     gallery, 
-                    "sqeuclidean"
+                    "cosine"
                 )[-1]
         ds = ds.tolist()
         print("\tSCORE: ", ds)
@@ -426,8 +438,9 @@ class ID_Assigner(object):
         # l = list(map(int, ds))
         # print(l[(l>np.quantile(l,0.1)) & (l<np.quantile(l,0.9))].tolist())
         # if min(ds) <80:
-        a = list(map(int, ds))
-        if (not min(a)>np.quantile(a,0.1)) and (sum(a)/len(a) - min(a)) > 80:
+        print(min(ds))
+        # if (not min(a)>np.quantile(a,0.1)) and (sum(a)/len(a) - min(a)) > 80:
+        if  min(ds) <= 0.32:
             # print(ds)
             match = ids[self.argmin(ds)]
             self.log_event("match")

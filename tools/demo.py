@@ -27,7 +27,7 @@ from yolov7.utils.torch_utils import select_device, TracedModel
 from tracker.byte_tracker import BYTETracker
 from timer.timer import Timer
 
-from id_assigner.id_assigner import ID_Assigner
+from entry_exit_reid.entry_exit_reid import Entry_Exit_REID
 import json
 
 def read_config(config):
@@ -91,15 +91,18 @@ def main():
     x, y = get_entry_line_points(jfile)
     # ID Assigner Inisialization
 
-    if not opt.without_id_assigner:
+    if not opt.without_EER:
         """
             https://github.com/KaiyangZhou/deep-person-reid
-            code reference: reid model type: 'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 'osnet_ibn_x1_0'
+            reid model type: 
+                        'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 
+                        'osnet_ibn_x1_0', 
+                        'osnet_ain_x1_0'
         """ 
-        id_assigner = ID_Assigner(
+        EER = Entry_Exit_REID(
             entry_line_config = jfile,
             reid_model_path = opt.osnet_weight,
-            reid_model_name = "osnet_ibn_x1_0"
+            reid_model_name = "osnet_x1_0"
         )
     
     # Start Detection and Tracking
@@ -129,7 +132,7 @@ def main():
         img /= 255.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
+        # print(img.shape)
         print("\n=========DETEKSI========== ")
         # Model inference
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
@@ -145,13 +148,11 @@ def main():
             classes = opt.classes,
             agnostic = opt.agnostic_nms
         )
-        # print(pred)
+        print(pred)
 
         # Tracking
         p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
         
-        # visualize entry line
-        cv2.line(im0,(int(x[0]),int(y[0])),(int(x[1]),int(y[1])),(0,255,0),1)
         results = []
         det = pred[0]
         detections = []
@@ -171,8 +172,8 @@ def main():
             detections
         )
 
-        if not opt.without_id_assigner:
-            online_targets= id_assigner.update(
+        if not opt.without_EER:
+            online_targets= EER.update(
                 online_targets,
                 im0
             )
@@ -183,7 +184,7 @@ def main():
 
             if tlwh[2] * tlwh[3] > opt.min_box_area:
                 conf = confs[i]
-                if not opt.without_id_assigner:
+                if not opt.without_EER:
                     tid = online_targets[i].get_id()
                     td = online_targets[i].get_distance()  
                     tls = online_targets[i].decode_state(online_targets[i].get_last_state())
@@ -196,6 +197,8 @@ def main():
                 
                 if save_img or view_img:  # Add bbox to image
                     plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+                    # visualize entry line
+                    cv2.line(im0,(int(x[0]),int(y[0])),(int(x[1]),int(y[1])),(0,255,0),1)
 
                 online_tlwhs.append(tlwh)
                 online_tid.append(tid)
@@ -246,10 +249,10 @@ def main():
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         print(f"Results saved to {save_dir}{s}")
 
-    if not opt.without_id_assigner:
-        id_assigner.log_report()
-        id_assigner.sample_db()
-        id_assigner.log_output()
+    if not opt.without_EER:
+        EER.log_report()
+        EER.sample_db()
+        EER.log_output()
 
     print(f'Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
     print(f"total_frame/total_time: {frame_id/(time.time() - t0)} \t min FPS: {min_FPS} \t max FPS: {max_FPS}")
@@ -292,8 +295,8 @@ if __name__ == "__main__":
     parser.add_argument('--osnet_weight', type=str, help='model.pt path')
     
 
-    # ID_Assigner Parser
-    parser.add_argument('--without_id_assigner', action='store_true', help='without id assigner')
+    # Entry Exit REID Parser
+    parser.add_argument('--without_EER', action='store_true', help='without id assigner')
     parser.add_argument('--entry_line_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry line config path')
     # parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
 
