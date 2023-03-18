@@ -3,11 +3,11 @@ Description:
     Class: Entry_Exit_REID
     This class is used for entry exit reid implementation.
     The implementation combains yolov7 (detector), bytetrack
-    (tracker), and id assigner it self to solve the problem.
-    This class will manage each tracker object ids according 
-    to each track states.
+    (tracker), and OsNet reid model to solve the problem.
+    This class will manage each track ids when a person enter 
+    or exit a entry line area
 author:
-    muhammad nur ilmi-gadjah mada university
+    muhammad nur ilmi-Gadjah Mada University, Yogyakarta, Indonesia
     mnurilmi18@gmail.com
 """
 import numpy as np
@@ -16,13 +16,10 @@ import time
 import cv2
 import glob
 import os
-# import sys
-# sys.path.insert(0, "deep-person-reid")
-# sys.path.append(".")
+import csv
 
 from tracker.basetrack import TrackState
 
-from torchreid.utils import FeatureExtractor
 import torch
 from scipy.spatial import distance
 
@@ -31,44 +28,43 @@ class TrackState_(TrackState):
     Matching = 5
 
 class Entry_Exit_REID(object):
-    # reid_model_name -> 'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 'osnet_ibn_x1_0'
     def __init__(
         self,
         entry_line_config,        
-        reid_model_path,
+        feat_extractor,
+        feat_match_thresh,
         distance_treshold = 0, 
-        reid_model_name = "osnet_x1_0",
         save_feats = False
         ):
         print("CUDA is active?: ", torch.cuda.is_available())
         
         self.db = {}
+        self.output = []
         self.frame_id = 0
         self.last_id = 0
         self.distance_treshold = distance_treshold
-        jfile = entry_line_config
-        self.entry_area_position = jfile["entry_area_position"]
-        self.entry_line_coef = self.calculate_line_coef(jfile)
-        self.output = []
-        self.max_intra = 0
-        self.event_logger = {
+        self.entry_area_position = entry_line_config["entry_area_position"]
+        self.entry_line_coef = self.calculate_line_coef(entry_line_config)
+        
+        self.system_recorder = {
+            "total_person_in_frame":0,
             "saving_db":0,
             "matching_db":0,
             "match":0,
             "frame_indices":[]
         }
+        self.EER_recorder = []
+        
         # Reid model inisialization
-        self.feat_extractor = FeatureExtractor(
-            model_name = reid_model_name,
-            model_path = reid_model_path,
-            device='cuda'
-        )
-
+        self.feat_extractor = feat_extractor
+        self.feat_match_thresh = feat_match_thresh 
+        print("feature matching treshold:", self.feat_match_thresh)
         if save_feats:
             # Reset folder to save patches
             self.reset()
-        self.temp = []
-        print("===ReID model and ID Assigner ready!===")
+        print("===Entry Exit REID ready!===")
+        self.temp = True
+
 
     def reset(self):
         files = glob.glob('temp/*')
@@ -96,6 +92,7 @@ class Entry_Exit_REID(object):
             m = np.inf
         else:
             m = -1*(y[1]-y[0])/(x[1]-x[0])
+            
         if  m > 0:
             self.gradient = "positive"
         elif m < 0:
@@ -104,8 +101,20 @@ class Entry_Exit_REID(object):
             self.gradient = "horizontal"
         elif m == np.inf: 
             self.gradient = "vertical"
+        
+        # Determine upper and lower bounds of entry line
+        if y[0] > y[1]:
+            self.top_line_points = [(0,-int(y[0])), (int(x[0]),-int(y[0]))]
+            self.bottom_line_points = [(0,-int(y[1])), (int(x[1]),-int(y[1]))]
+        else:
+            self.top_line_points = [(0,-int(y[1])), (int(x[1]),-int(y[1]))]
+            self.bottom_line_points = [(0,-int(y[0])), (int(x[0]),-int(y[0]))]
+            
         return coefficients
-
+    
+    def get_top_bottom_line(self):
+        return self.top_line_points, self.bottom_line_points
+    
     def update(self, ot, im0):
         """
         Steps:
@@ -113,23 +122,21 @@ class Entry_Exit_REID(object):
         - tentuin state
         """
         self.frame_id +=1
-
+        self.system_recorder["total_person_in_frame"] = len(ot)
+        
         if len(ot) == 0:
             return []
-            
+        
         im1 = im0.copy()
-        centroids, patches = self.get_centroids_and_patches(ot, im1)     # matrix operation and iteration process
-        distances = self.calculate_distance2line(centroids)         # matrix operation calculation
-        feats = self.extract_feature(patches)                       # One inference process
+        centroids, patches = self.get_centroids_and_patches(ot, im1)    # matrix operation and iteration process
+        distances = self.calculate_distance2line(centroids)             # matrix operation calculation
+        feats = self.extract_feature(patches)                           # One inference process (many objects)
+        feats_np = feats.cpu().data.numpy()
+        self.set_ids(ot, feats_np, distances, centroids)                # iteration process
+        
+        # print("feats length: ", feats.shape)  
         # print(len(patches))
         # print(feats.shape)
-        self.update_tracks(ot, feats, distances, centroids)                                # iteration process
-        self.set_ids(ot, distances)                                 # iteration process
-
-        # # visualize entry line
-        # cv2.line(im0,(int(self.x[0]),int(self.y[0])),(int(self.x[1]),int(self.y[1])),(0,255,0),1)
-
-        # tracks_passed = self.check_passed_the_line(distances)
         return ot
 
     def get_centroids_and_patches(self, ot, im1):
@@ -158,6 +165,14 @@ class Entry_Exit_REID(object):
         return centroids, patches
 
     def calculate_distance2line(self, p):
+        """Distance centroid point to entry_exit line Calculation
+
+        Args:
+            p (list): list of online track centroids
+
+        Returns:
+            distances: list distance centroid point to entry_exit line 
+        """
         coef = self.entry_line_coef
         points = self.calculate_points_cartesian(p)
         x = np.array([[coef[0]],[-1]])
@@ -165,6 +180,14 @@ class Entry_Exit_REID(object):
         return ((np.dot(points, x)+coef[1]) * (1/math.sqrt((coef[0]*coef[0])+1))).flatten()
 
     def calculate_points_cartesian(self, points):
+        """Convert entry line points in the image to cartesian field (quadran I)
+
+        Args:
+            points (list): entry line points
+
+        Returns:
+            numpy array: points in cartesian field
+        """
         points_img = np.array(points)
         M = np.array([[1, 0],[0, -1]])
         return np.dot(points_img,M)
@@ -175,56 +198,58 @@ class Entry_Exit_REID(object):
         tlbr = np.array(tlbr).astype(int)
         tlbr[0] = (max(0, tlbr[0]))
         tlbr[1] = (max(0, tlbr[1]))
-        tlbr[2] = (min(img.shape[1] - 1, tlbr[2])) # relatif terhadap W
-        tlbr[3] = (min(img.shape[0] - 1, tlbr[3])) # relatif terhadap H
+        tlbr[2] = (min(img.shape[1] - 1, tlbr[2])) # relative to W
+        tlbr[3] = (min(img.shape[0] - 1, tlbr[3])) # relative to H
         # print(tlbr)
         patch = img[
             tlbr[1]:tlbr[3],
             tlbr[0]:tlbr[2]
         ]
         cv2.resize(patch, target_size)
-        
-        ## Function to save the features locally
-        # cv2.imwrite("temp/{0}.jpg".format(uuid.uuid4()), patch)
+
+        ## save patch sample
+        if self.temp:
+            cv2.imwrite("{0}.jpg".format("sample"), patch)
+        else:
+            self.temp = False
         # print(len(glob.glob("temp/*")))
         return patch
 
-    def extract_feature(self, patches, verbose = False):
-        t1 = time.time()
+    def extract_feature(self, patches):
+        """Feature extraction of all online track bounding boxes
+            The REID model will do inferencing to all patches and return features of every patch
+        Args:
+            patches (list): list of person patches
+        """
+        # t1 = time.time()
         features = self.feat_extractor(patches)
-
-        if verbose:
-            print("feats:", features)
-            print("waktu ekstrak feats: ", time.time() - t1)
-            # Debug matching fitur
-            for f in features:
-                for g in features:
-                    # print(distance.cdist(f.cpu().data.numpy(), g.cpu().data.numpy()))
-                    print(
-                          distance.cdist(
-                              f.cpu().data.numpy().reshape(1, -1),
-                              g.cpu().data.numpy().reshape(1, -1), "euclidean"
-                              ))
-                    
+        if torch.cuda.is_available():
+                torch.cuda.synchronize()
         return features
 
-    def update_tracks(self, ot, feats, distances, centroids):
-        # print("feats length: ", feats.shape)  
-        feats_np = feats.cpu().data.numpy()
+    def update_track(self, index, ot, feats_np, distances, centroids):   
+        ot[index].update_feat(feats_np[index])
+        ot[index].set_distance(distances[index])
+        ot[index].set_centroid((centroids[index][0],centroids[index][1]))
 
-        for i in range(len(ot)):
-            ot[i].update_feat(feats_np[i])
-            ot[i].set_distance(distances[i])
-            ot[i].set_centroid((centroids[i][0],centroids[i][1]))
+    def set_ids(self, ot, feats_np, distances, centroids):
+        """Set IDs (ID Assigner)
 
-    def set_ids(self, ot, distances):
+        Args:
+            - ot (list of object): list of online tracks
+            - feats_np (numpy array): features from previous reid model inference process
+            - distances (list): centroid distances of online tracks
+            - centroids (list): centroid position of each online tracks
+        
+        Tasks:
+            - update online track attributes
+            - set each online track id's
+        """
         # print("===set ids===   ", len(ot), "tracks online")
         for i in range(len(ot)):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
-            # print(self.calculate_intra_class_distance(ot[i]))
-            # self.algorithm1(ot, i)
+            self.update_track(i, ot, feats_np, distances, centroids)
             self.algorithm1(ot, i)
-            
             # print("<=======================>")
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print("\n")
@@ -232,6 +257,9 @@ class Entry_Exit_REID(object):
 
     def algorithm1(self, ot, i):
         """
+        Args:
+            - ot (list of object): list of online tracks
+            - i (int): index of ot  
         algorithm notes:
             * default state: Tracked
             * features are saved just once when the track pass the line for the first time
@@ -239,14 +267,15 @@ class Entry_Exit_REID(object):
                 * id -1; any state except tracked
 
         """
+        print(i, "-", end = " ")
         tid = ot[i].get_id()
         tls = ot[i].get_last_state()    # track last state
-        is_passed = self.is_passed(ot[i].get_distance()) 
+        is_passed = self.is_passed(ot[i].get_distance(), ot[i].get_centroid()) 
         feat = ot[i].get_feat()
 
         if tid == -1:
             if not is_passed:
-                # set new id, last state unchanged
+                # set new id, last state unchanged (tracked)
                 ot[i].set_id(self.next_id())
             else:
                 # matching db
@@ -258,24 +287,30 @@ class Entry_Exit_REID(object):
                     # print(feat)
                 else:
                     # set new id and start tracking as usual
-                    # ot[i].set_id(self.next_id())
-                    ot[i].set_id(self.last_id+1) # candidate id, not fix, so the last id for the system still same
+                    ot[i].set_id(self.next_id())
+                    # ot[i].set_id(self.last_id+1) # candidate id, not fix, so the last id for the system still same
 
                     # self.save_2_db(ot[i])
                     # ot[i].set_last_state(TrackState_.In) # transition Tracked to In
         else:
             if not is_passed:
                 if tls == TrackState_.Matching:
-                    if ot[i].get_id() == self.last_id+1:
-                         ot[i].set_id(self.next_id())   # if the system believes it is a new person, then id is the next id
-                    else:                               # otherwise the system id will not be changed and the system sure that is registered person
-                        pass
+                    # if ot[i].get_id() == self.last_id+1:
+                    #      ot[i].set_id(self.next_id())   # if the system believes it is a new person, then id is the next id
+                    # else:                               # otherwise the system id will not be changed and the system sure that is registered person
+                    #     pass
+                    
+                    # if ot[i].get_id() in self.db.keys():
+                    #     # delete object from db when the person on the exit condition
+                    #     del self.db[ot[i].get_id()]
+
+
                     # print(feat)
 
-                    # Exit event condition; append output and id match
+                    # Exit event condition, transition Matching to Tracked; save result
                     self.output.append(ot[i].get_id())
-                # elif tls == TrackState_.In:
-
+                    self.set_EER_recorder(ot[i].get_id(), "Exit", self.get_local_time())
+                # elif tls == TrackState_.In
                 #     # Exit event condition; append output and doesnt match
                 #     self.output.append(ot[i].get_id())
 
@@ -283,14 +318,18 @@ class Entry_Exit_REID(object):
                 ot[i].set_last_state(TrackState_.Tracked)
             else:
                 if  tls == TrackState_.Tracked:
+                    # Enter event condition, transition Tracked to In
                     # saving to db
                     self.save_2_db(ot[i])
-                    ot[i].set_last_state(TrackState_.In) # transition Tracked to In
+                    ot[i].set_last_state(TrackState_.In)
                 elif tls == TrackState_.Matching:
                     # matching db until pass the entry line again
                     is_match, registered_object = self.matching_db(feat)
                     if is_match:
+                        if tid in db.keys():
+                            self.db[tid]["matched"] = False
                         ot[i].set_id(registered_object.get_id())
+                        
                         # ot[i].set_id(99)
                     else:
                         # tracking as usual with current id
@@ -299,109 +338,79 @@ class Entry_Exit_REID(object):
                     # tracking as usual
                     pass
 
-    def algorithm2(self, ot, i):
-        """
-        algorithm notes:
-            * default state: Tracked
-            * features are saved just once when the track pass the line for the first time
-            * Impossible condition are:
-                * id -1; any state except tracked
-
-        """
-        tid = ot[i].get_id()
-        tls = ot[i].get_last_state()    # track last state
-        is_passed = self.is_passed(ot[i].get_distance()) 
-        feat = ot[i].get_feat()
-
-        if tid == -1:
-            # matching db
-            is_match, registered_object = self.matching_db(feat)
-            if is_match:
-                ot[i].set_id(registered_object.get_id())
-                # ot[i].set_id(99)
-                # print(feat)
-                ot[i].set_last_state(TrackState_.Matching)
-            else:
-                # set new id and start tracking as usual
-                ot[i].set_id(self.next_id())
-
-                self.save_2_db(ot[i])
-                ot[i].set_last_state(TrackState_.In) # transition Tracked to In
+    def in_bounds(self, centroid):
+        # check centroid to both line x coordinates 
+        # print(centroid)
+        # print(self.top_line_points)
+        # print(self.bottom_line_points)
+        # print()
+        # print("z", (-centroid[1] <= self.top_line_points[1][1] and -centroid[1] > self.bottom_line_points[1][1]))
+        if (centroid[1] > self.top_line_points[1][1] and centroid[1] <= self.bottom_line_points[1][1]):
+            return True
         else:
-            if not is_passed:
-                if tls == TrackState_.Matching:
-                    print(feat)
-                    # Exit event condition; append output
-                    self.output.append(ot[i].get_id())
-
-                # tracking as usual until cross/pass the entry line
-                ot[i].set_last_state(TrackState_.Tracked)
-            else:
-                if  tls == TrackState_.Tracked:
-                    # saving to db
-                    self.save_2_db(ot[i])
-                    ot[i].set_last_state(TrackState_.In) # transition Tracked to In
-                elif tls == TrackState_.Matching:
-                    # matching db until pass the entry line again
-                    is_match, registered_object = self.matching_db(feat)
-                    if is_match:
-                        ot[i].set_id(registered_object.get_id())
-                        # ot[i].set_id(99)
-                    else:
-                        # tracking as usual with current id
-                        pass
-                else:
-                    # tracking as usual
-                    pass
-
-
-    def is_passed(self, distance):
+            return False  
+                 
+    def is_passed(self, distance, centroid):
         # First ssumption the location enter on the left side of the picture
         # The user can setting it on the config
+        # print("c:", centroid)
+        # print(self.in_bounds(centroid))
         if self.entry_area_position == "left":
             if distance >= self.distance_treshold:
                 if self.gradient == "positive":
-                    return True
+                    if self.in_bounds(centroid):
+                        return True
+                    else:
+                        return False
                 else:
                     return False
             else:
                 if self.gradient == "positive":
                     return False
                 else:
-                    return True
+                    if self.in_bounds(centroid):
+                        return True
+                    else:
+                        return False
         elif self.entry_area_position == "right":
             if distance < self.distance_treshold:
                 if self.gradient == "positive":
-                    return True
+                    if self.in_bounds(centroid):
+                        return True
+                    else:
+                        return False
                 else:
                     return False
             else:
                 if self.gradient == "positive":
                     return False
                 else:
-                    return True
-        elif self.entry_area_position == "above":
-            if distance >= self.distance_treshold:
-                if self.gradient == "positive":
-                    return True
-                else:
-                    return False
-            else:
-                if self.gradient == "positive":
-                    return False
-                else:
-                    return True
-        elif self.entry_area_position == "below":
-            if distance < self.distance_treshold:
-                if self.gradient == "positive":
-                    return True
-                else:
-                    return False
-            else:
-                if self.gradient == "positive":
-                    return False
-                else:
-                    return True
+                    if self.in_bounds(centroid):
+                        return True
+                    else:
+                        return False
+        # elif self.entry_area_position == "above":
+        #     if distance >= self.distance_treshold:
+        #         if self.gradient == "positive":
+        #             return True
+        #         else:
+        #             return False
+        #     else:
+        #         if self.gradient == "positive":
+        #             return False
+        #         else:
+        #             return True
+        # elif self.entry_area_position == "below":
+        #     if distance < self.distance_treshold:
+        #         if self.gradient == "positive":
+        #             return True
+        #         else:
+        #             return False
+        #     else:
+        #         if self.gradient == "positive":
+        #             return False
+        #         else:
+        #             return True
 
     def matching_db(self, feat_):
         # print("\nMATCHING DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -433,18 +442,14 @@ class Entry_Exit_REID(object):
                 )[-1]
         ds = ds.tolist()
         print("\tSCORE: ", ds)
-        # print(sum(ds)/len(ds) - min(ds))
-        # self.temp.append(sum(ds)/len(ds) - min(ds))
-        # l = list(map(int, ds))
-        # print(l[(l>np.quantile(l,0.1)) & (l<np.quantile(l,0.9))].tolist())
-        # if min(ds) <80:
-        print(min(ds))
+        match = ids[self.argmin(ds)]
+        print(min(ds), "-", ids[self.argmin(ds)])
         # if (not min(a)>np.quantile(a,0.1)) and (sum(a)/len(a) - min(a)) > 80:
-        if  min(ds) <= 0.32:
-            # print(ds)
-            match = ids[self.argmin(ds)]
+        if  min(ds) <= self.feat_match_thresh and not self.db[match]["matched"]:
+            self.db[match]["matched"] = True
+            # print(ds) 
             self.log_event("match")
-            self.event_logger["frame_indices"].append(self.frame_id)
+            self.system_recorder["frame_indices"].append(self.frame_id)
             # print("MATCHED ID: ", match)
             o = self.db[match]["registered_object"]
             # del self.db["match"]
@@ -463,9 +468,11 @@ class Entry_Exit_REID(object):
         # print(t.get_id(), " SAVE FITUR 2 DB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.log_event("saving_db")
         self.db[t.get_id()] = {
-            "registered_object": t
+            "registered_object": t,
+            "matched": False
         }
-
+        self.set_EER_recorder(t.get_id(), "In", self.get_local_time())
+        
 
     def check_passed_the_line(self, distances):
         track_passed = []
@@ -473,32 +480,59 @@ class Entry_Exit_REID(object):
             track_passed.append(self.is_passed(d))
         return track_passed
 
-    def calculate_intra_class_distance(self, t):
-        # Cek asosiasi intra class feature
-        ds = []
-        print("len feat: ", len(t.get_feat()))
-        print("feat", np.array(t.get_feat()).shape)
-        for f in t.get_feat():
-            for g in t.get_feat():
-                ds.append(int(
-                    distance.cdist(
-                    f.reshape(1, -1),
-                    g.reshape(1, -1), "euclidean"
-                ).tolist()[-1][-1]
-                ))
-        print("intra class distance: ")
-        # print(ds)
-        return ds
+    # def calculate_intra_class_distance(self, t):
+    #     # Cek asosiasi intra class feature
+    #     ds = []
+    #     print("len feat: ", len(t.get_feat()))
+    #     print("feat", np.array(t.get_feat()).shape)
+    #     for f in t.get_feat():
+    #         for g in t.get_feat():
+    #             ds.append(int(
+    #                 distance.cdist(
+    #                 f.reshape(1, -1),
+    #                 g.reshape(1, -1), "euclidean"
+    #             ).tolist()[-1][-1]
+    #             ))
+    #     print("intra class distance: ")
+    #     # print(ds)
+    #     return ds
 
+    def get_local_time(self):
+      # get local time in UTC format
+      return time.asctime(time.gmtime())
+
+    def get_total_person(self):
+        return self.system_recorder["total_person_in_frame"]
+    
+    def set_EER_recorder(self, id, event, UTC_time):
+        self.EER_recorder.append(
+            {   
+                'id': id,
+                'event': event,
+                'UTC_time': UTC_time
+            }
+        )
+        
+    def get_EER_recorder(self):
+        return self.EER_recorder
+    
+    def generate_EER_recorder_csv(self, fname):
+        fname = fname+".csv"
+        with open(fname, 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames = ['id', 'event', 'UTC_time'])
+            writer.writeheader()
+            writer.writerows(self.get_EER_recorder())
+        print("=====EER recorder generated=====")
+    
     def log_event(self, event):
-        if event not in self.event_logger.keys():
-            self.event_logger[event] = 1
+        if event not in self.system_recorder.keys():
+            self.system_recorder[event] = 1
         else:    
-            self.event_logger[event] += 1
+            self.system_recorder[event] += 1
 
     def log_report(self):
         print("\n=====REPORT EVENT=====")
-        print(self.event_logger)
+        print(self.system_recorder)
     
     def sample_db(self):
         print("\n===== SAMPLE DATABASE=====")
@@ -507,5 +541,5 @@ class Entry_Exit_REID(object):
             print("feat shape: ", self.db[i]["registered_object"].get_feat().shape)
     
     def log_output(self):
-        print("Output:", self.output)
-        print(self.temp)
+        print("ID to evaluate (Exit condition):", self.output)
+        print(self.get_EER_recorder())

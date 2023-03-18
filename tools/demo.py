@@ -1,8 +1,9 @@
 """
 author: muhammad nur ilmi
+Description:
+    Demo script to run Entry Exit REID for Entry Exit Person Monitoring System
 Adapted from:
     https://github.com/ifzhang/ByteTrack/blob/main/tools/demo_track.py
-    https://github.com/NirAharon/BoT-SORT/blob/main/tools/mc_demo_yolov7.py
 """
 import argparse
 import time
@@ -27,6 +28,7 @@ from yolov7.utils.torch_utils import select_device, TracedModel
 from tracker.byte_tracker import BYTETracker
 from timer.timer import Timer
 
+from torchreid.utils import FeatureExtractor
 from entry_exit_reid.entry_exit_reid import Entry_Exit_REID
 import json
 
@@ -42,6 +44,7 @@ def get_entry_line_points(j):
 
 # Start Code
 def main():
+    t0 = time.time()
     timer_init = Timer()
     timer_init.tic()
 
@@ -56,7 +59,7 @@ def main():
     device = select_device(opt.device)
     half = device.type != "cpu"
 
-    #Model Loading
+    # YOLOv7 Model Loading
     model = attempt_load(
         opt.yolo_weight,
         map_location = device
@@ -67,7 +70,7 @@ def main():
         opt.img_size,
         s = stride
         )
-
+    
     if opt.trace:
         model = TracedModel(
             model,
@@ -78,7 +81,7 @@ def main():
     if half:
         model.half()
 
-    names = model.module.names if hasattr(model, "module") else model.names
+    # names = model.module.names if hasattr(model, "module") else model.names
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(100)]
 
     # Tracker Inisialization
@@ -86,25 +89,33 @@ def main():
         opt,
         frame_rate = 30.0
     )
+    
+    # REID model (feature extractor) Inisialization
+    """
+        https://github.com/KaiyangZhou/deep-person-reid
+        reid model type: 
+                    'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 
+                    'osnet_ibn_x1_0', 
+                    'osnet_ain_x1_0'
+    """ 
+    reid_model = FeatureExtractor(
+            model_name = "osnet_x1_0",
+            model_path = opt.reid_model_weight,
+            device='cuda'
+        )
 
+    # Entry Exit REID Inisialization
     jfile = read_config(opt.entry_line_config)
     x, y = get_entry_line_points(jfile)
-    # ID Assigner Inisialization
-
-    if not opt.without_EER:
-        """
-            https://github.com/KaiyangZhou/deep-person-reid
-            reid model type: 
-                        'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 
-                        'osnet_ibn_x1_0', 
-                        'osnet_ain_x1_0'
-        """ 
+    is_with_EER = not opt.without_EER
+    
+    if is_with_EER:
         EER = Entry_Exit_REID(
             entry_line_config = jfile,
-            reid_model_path = opt.osnet_weight,
-            reid_model_name = "osnet_x1_0"
+            feat_extractor = reid_model,
+            feat_match_thresh = opt.feature_match_thresh,
         )
-    
+   
     # Start Detection and Tracking
     # if device.type!= "cpu":
     #     model(torch.zeros(1, 3, img_size).to(device).type_as(next(model.parameters())))
@@ -119,27 +130,28 @@ def main():
         dataset = LoadImages(opt.source, img_size=img_size, stride=stride)
 
     timer_init.toc()
-    print("Inizialization Time: ", timer_init.average_time, " s\n\n")
+    print("Inizialization Time: ", timer_init.total_time, " s\n\n")
 
-    frame_id, min_FPS, max_FPS = 1, 999, -1
+    frame_id, min_FPS, max_FPS = 0, 999, 0
     timer = Timer()
-    t0 = time.time()
 
     for path, img, im0s, vid_cap, in dataset:
         timer.tic()
+        frame_id += 1
+        
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()
         img /= 255.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-        # print(img.shape)
-        print("\n=========DETEKSI========== ")
-        # Model inference
+        
+        # print("\n=========DETEKSI========== ")
+        # YOLOv7 Model inference
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
             pred = model(
                 img,
                 augment = opt.augment)[0]
-
+            torch.cuda.synchronize()
         # NMS
         pred = non_max_suppression(
             pred,
@@ -148,32 +160,30 @@ def main():
             classes = opt.classes,
             agnostic = opt.agnostic_nms
         )
-        print(pred)
 
-        # Tracking
+        # ByteTrack tracker update
         p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
         
-        results = []
-        det = pred[0]
         detections = []
         confs = []
-        online_tlwhs = []
-        online_tid = []
-        online_tlbr = []
+        # online_tlwhs = []
+        # online_tid = []
+        # online_tlbr = []
 
-        if len(det):
-            boxes = scale_coords(img.shape[2:], det[:, :4], im0.shape)
+        if len(pred[0]):
+            # scaling detected bounding boxes to original image size
+            boxes = scale_coords(img.shape[2:], pred[0][:, :4], im0.shape)
             boxes = boxes.cpu().numpy()
-            detections = det.cpu().numpy()
+            detections = pred[0].cpu().numpy()
             detections[:, :4] = boxes
-            confs = det[:, 4]
+            confs = pred[0][:, 4]       #confidence scores
 
         online_targets = tracker.update(
             detections
         )
 
-        if not opt.without_EER:
-            online_targets= EER.update(
+        if is_with_EER:
+            online_targets = EER.update(
                 online_targets,
                 im0
             )
@@ -184,45 +194,49 @@ def main():
 
             if tlwh[2] * tlwh[3] > opt.min_box_area:
                 conf = confs[i]
-                if not opt.without_EER:
+                if is_with_EER:
+                    # person label YOLOv7 + Bytetrack + EER
                     tid = online_targets[i].get_id()
-                    td = online_targets[i].get_distance()  
                     tls = online_targets[i].decode_state(online_targets[i].get_last_state())
                     tc = online_targets[i].get_centroid()
-                    label = '{0:}-{1:.2f}-{2:.2f}-{3:}'.format(tid, conf, td, tls)
+                    # td = online_targets[i].get_distance()  # centroid distance perpendicular to entry line
+                    label = '{0:}-{1:.2f}-{2:}'.format(tid, conf, tls)
                     cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
                 else:
+                    # person label YOLOv7 + Bytetrack
                     tid = online_targets[i].track_id
                     label = '{0:}-{1:.2f}'.format(tid, conf)
                 
-                if save_img or view_img:  # Add bbox to image
+                if save_img or view_img:
+                    # Add bboxes and labelsto image
                     plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
+                    
                     # visualize entry line
+                    top_line, bottom_line = EER.get_top_bottom_line() # top and bottom line is a horizontal line to 2 points of entry line
                     cv2.line(im0,(int(x[0]),int(y[0])),(int(x[1]),int(y[1])),(0,255,0),1)
-
-                online_tlwhs.append(tlwh)
-                online_tid.append(tid)
-                online_tlbr.append(tlbr)
-                #save results
-                results.append(
-                    f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
-                )      
-        timer.toc()
+                    cv2.line(im0, top_line[0],top_line[1],(0,255,0),1)
+                    cv2.line(im0, bottom_line[0], bottom_line[1],(0,255,0),1)
+                # online_tlwhs.append(tlwh)
+                # online_tid.append(tid)
+                # online_tlbr.append(tlbr)
+                # #save results
+                # results.append(
+                #     f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
+                # )      
+        timer.toc() # important process processing time
+        
         FPS = int(1. / max(1e-5, timer.average_time))
-
         if FPS < min_FPS and not FPS == 0:
             min_FPS = FPS 
         if FPS > max_FPS:
             max_FPS = FPS
-        print(f"FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}")
-        cv2.putText(im0, f"Frame: {frame_id}; FPS:{FPS}; MIN: {min_FPS}; MAX: {max_FPS}", (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
-                    
+        print(f"Avg FPS:{FPS} MIN-Avg-FPS: {min_FPS} MAX-Avg-FPS: {max_FPS}\n")
+        cv2.putText(im0, f"Frame: {frame_id} Avg FPS:{FPS}",(7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(im0, f"total person: {EER.get_total_person()}",(7, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(im0, f"object label: id-confidence-distance_to_entry_line-state",(7, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+                           
         p = Path(p)
         save_path = str(save_dir / p.name)
-        # Stream results
-        if opt.view_img:
-            cv2.imshow('ByteTrack', im0)
-            cv2.waitKey(1)  # 1 millisecond
 
         # Save results (image with detections)
         if save_img:
@@ -242,8 +256,6 @@ def main():
                         save_path += '.mp4'
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer.write(im0)
-
-        frame_id += 1
         
     if opt.save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
@@ -251,11 +263,12 @@ def main():
 
     if not opt.without_EER:
         EER.log_report()
-        EER.sample_db()
+        # EER.sample_db()
         EER.log_output()
-
-    print(f'Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
-    print(f"total_frame/total_time: {frame_id/(time.time() - t0)} \t min FPS: {min_FPS} \t max FPS: {max_FPS}")
+        EER.generate_EER_recorder_csv(str(save_dir / p.name.split(".")[0]))
+        
+    print(f"Avg FPS: {FPS} \t min Avg FPS: {min_FPS} \t Avg max FPS: {max_FPS}")
+    print(f'Execution Done. ({time.time() - t0:.3f}s)\t\tfolder name: {save_dir}')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -282,7 +295,7 @@ if __name__ == "__main__":
 
     # ByteTrack Parser
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=20, help="the frames for keep lost tracks")
+    parser.add_argument("--track_buffer", type=int, default=10, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.8, help="matching threshold for tracking")
     parser.add_argument(
         "--aspect_ratio_thresh", type=float, default=1.6,
@@ -292,13 +305,12 @@ if __name__ == "__main__":
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
 
     # REID Model Parser (OSNET model)
-    parser.add_argument('--osnet_weight', type=str, help='model.pt path')
-    
+    parser.add_argument('--reid_model_weight', type=str, help='model.pt path')
+    parser.add_argument("--feature_match_thresh", type=float, default=0.2, help="feature matching threshold for Entry Exit REID")
 
     # Entry Exit REID Parser
     parser.add_argument('--without_EER', action='store_true', help='without id assigner')
     parser.add_argument('--entry_line_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry line config path')
-    # parser.add_argument('--entry_area_position', type=str, default='right', help='entry area position POV (right/left)')
 
     opt = parser.parse_args()
     print(opt)

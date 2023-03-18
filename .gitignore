@@ -6,3 +6,8 @@ configs/YOLOv7
 configs/OSNET
 testing_data/
 test/
+
+entry_exit_reid/entry_exit_reid_lawas.py
+tools/demo_trt.py
+tools/demo_trt_new.py
+tools/demo_first_proto.py

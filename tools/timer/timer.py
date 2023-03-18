@@ -1,5 +1,5 @@
 import time
-import torch
+
 
 class Timer(object):
     """A simple timer."""
@@ -15,13 +15,9 @@ class Timer(object):
     def tic(self):
         # using time.time instead of time.clock because time time.clock
         # does not normalize for multithreading
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
         self.start_time = time.time()
 
     def toc(self, average=True):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
         self.diff = time.time() - self.start_time
         self.total_time += self.diff
         self.calls += 1
