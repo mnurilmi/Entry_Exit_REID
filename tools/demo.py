@@ -295,7 +295,7 @@ if __name__ == "__main__":
 
     # ByteTrack Parser
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=10, help="the frames for keep lost tracks")
+    parser.add_argument("--track_buffer", type=int, default=20, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.8, help="matching threshold for tracking")
     parser.add_argument(
         "--aspect_ratio_thresh", type=float, default=1.6,

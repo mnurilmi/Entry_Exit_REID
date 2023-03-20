@@ -47,7 +47,7 @@ class Entry_Exit_REID(object):
         self.entry_line_coef = self.calculate_line_coef(entry_line_config)
         
         self.system_recorder = {
-            "total_person_in_frame":0,
+            "total_person_in_frame": [],
             "saving_db":0,
             "matching_db":0,
             "match":0,
@@ -122,17 +122,17 @@ class Entry_Exit_REID(object):
         - tentuin state
         """
         self.frame_id +=1
-        self.system_recorder["total_person_in_frame"] = len(ot)
         
         if len(ot) == 0:
             return []
+        self.system_recorder["total_person_in_frame"].append(len(ot))
         
         im1 = im0.copy()
         centroids, patches = self.get_centroids_and_patches(ot, im1)    # matrix operation and iteration process
         distances = self.calculate_distance2line(centroids)             # matrix operation calculation
         feats = self.extract_feature(patches)                           # One inference process (many objects)
         feats_np = feats.cpu().data.numpy()
-        self.set_ids(ot, feats_np, distances, centroids)                # iteration process
+        self.set_ids(ot, feats_np, patches, distances, centroids)                # iteration process
         
         # print("feats length: ", feats.shape)  
         # print(len(patches))
@@ -151,8 +151,14 @@ class Entry_Exit_REID(object):
             patches.append(self.extract_patch(im1, ot[i].tlbr))
 
         tlbrs_np = np.array(tlbrs)
-        Mx = np.array([[1/2],[0],[1/2],[0]])
-        My = np.array([[0],[1/2],[0],[1/2]])
+        # bottom centroid
+        Mx = np.array([[1/2],[0],[1/2],[0]]) # left,right
+        My = np.array([[0],[0],[0],[1]])     # top bottom
+
+        # # Middle centroid
+        # Mx = np.array([[1/2],[0],[1/2],[0]]) # left,right
+        # My = np.array([[0],[0],[0],[1]])     # top bottom
+
         Cx = np.dot(tlbrs_np, Mx).astype(int)
         Cy = np.dot(tlbrs_np, My).astype(int)
         # print(Cx)
@@ -232,7 +238,7 @@ class Entry_Exit_REID(object):
         ot[index].set_distance(distances[index])
         ot[index].set_centroid((centroids[index][0],centroids[index][1]))
 
-    def set_ids(self, ot, feats_np, distances, centroids):
+    def set_ids(self, ot, feats_np, patches, distances, centroids):
         """Set IDs (ID Assigner)
 
         Args:
@@ -249,13 +255,13 @@ class Entry_Exit_REID(object):
         for i in range(len(ot)):
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             self.update_track(i, ot, feats_np, distances, centroids)
-            self.algorithm1(ot, i)
+            self.algorithm1(ot, i, patches)
             # print("<=======================>")
             # print("{}={}={}".format(ot[i].get_id(), ot[i].get_last_state(), distances[i]))
             # print("\n")
         # print("data in database: ", self.db.keys())
 
-    def algorithm1(self, ot, i):
+    def algorithm1(self, ot, i, patches):
         """
         Args:
             - ot (list of object): list of online tracks
@@ -308,8 +314,10 @@ class Entry_Exit_REID(object):
                     # print(feat)
 
                     # Exit event condition, transition Matching to Tracked; save result
-                    self.output.append(ot[i].get_id())
-                    self.set_EER_recorder(ot[i].get_id(), "Exit", self.get_local_time())
+                    self.output.append(tid)
+                    self.set_EER_recorder(tid, "Exit", self.get_local_time())
+                    if tid in self.db.keys():
+                        self.db[tid]["matched"] = True
                 # elif tls == TrackState_.In
                 #     # Exit event condition; append output and doesnt match
                 #     self.output.append(ot[i].get_id())
@@ -322,11 +330,12 @@ class Entry_Exit_REID(object):
                     # saving to db
                     self.save_2_db(ot[i])
                     ot[i].set_last_state(TrackState_.In)
+                    self.save_patch(i, patches)
                 elif tls == TrackState_.Matching:
                     # matching db until pass the entry line again
                     is_match, registered_object = self.matching_db(feat)
                     if is_match:
-                        if tid in db.keys():
+                        if tid in self.db.keys():
                             self.db[tid]["matched"] = False
                         ot[i].set_id(registered_object.get_id())
                         
@@ -345,7 +354,7 @@ class Entry_Exit_REID(object):
         # print(self.bottom_line_points)
         # print()
         # print("z", (-centroid[1] <= self.top_line_points[1][1] and -centroid[1] > self.bottom_line_points[1][1]))
-        if (centroid[1] > self.top_line_points[1][1] and centroid[1] <= self.bottom_line_points[1][1]):
+        if (centroid[1] >= self.top_line_points[1][1] and centroid[1] <= self.bottom_line_points[1][1]):
             return True
         else:
             return False  
@@ -446,7 +455,6 @@ class Entry_Exit_REID(object):
         print(min(ds), "-", ids[self.argmin(ds)])
         # if (not min(a)>np.quantile(a,0.1)) and (sum(a)/len(a) - min(a)) > 80:
         if  min(ds) <= self.feat_match_thresh and not self.db[match]["matched"]:
-            self.db[match]["matched"] = True
             # print(ds) 
             self.log_event("match")
             self.system_recorder["frame_indices"].append(self.frame_id)
@@ -473,7 +481,9 @@ class Entry_Exit_REID(object):
         }
         self.set_EER_recorder(t.get_id(), "In", self.get_local_time())
         
-
+    def save_patch(sself, i, patches):
+        cv2.imwrite(f"temp/{i}.jpg", patches[i])
+        
     def check_passed_the_line(self, distances):
         track_passed = []
         for d in distances:
@@ -502,7 +512,7 @@ class Entry_Exit_REID(object):
       return time.asctime(time.gmtime())
 
     def get_total_person(self):
-        return self.system_recorder["total_person_in_frame"]
+        return self.system_recorder["total_person_in_frame"][-1]
     
     def set_EER_recorder(self, id, event, UTC_time):
         self.EER_recorder.append(
@@ -543,3 +553,6 @@ class Entry_Exit_REID(object):
     def log_output(self):
         print("ID to evaluate (Exit condition):", self.output)
         print(self.get_EER_recorder())
+        # min_total = min(self.system_recorder["total_person_in_frame"])
+        max_total = max(self.system_recorder["total_person_in_frame"])
+        print(f"\nmax person in frame: {max_total} " )
