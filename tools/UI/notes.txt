@@ -1,1 +1,1 @@
-python "tools\UI\Configuration UI.py" --source "testing_data\loc1_1.mp4"
+python "tools\UI\Configuration UI.py" --source "testing_datas\loc1_1.mp4"

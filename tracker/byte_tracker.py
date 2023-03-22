@@ -154,10 +154,16 @@ class STrack(BaseTrack):
         return self.track_id_
     
     def set_id(self, id_):
-        temp = self.track_id_
         self.track_id_ = id_
         # print("===id- ", temp, "-> ", self.track_id_, " ===")
 
+    # def get_temp_id(self):
+    #     # print("===get id===")
+    #     return self.temp_track_id_
+    
+    # def set_temp_id(self, id_):
+    #     self.temp_track_id_ = id_
+        
     def get_last_state(self):   
         # print("===get last state===")
         return self.last_state_

@@ -114,6 +114,7 @@ def main():
             entry_line_config = jfile,
             feat_extractor = reid_model,
             feat_match_thresh = opt.feature_match_thresh,
+            save_patch_dir= save_dir # optional
         )
    
     # Start Detection and Tracking
@@ -233,7 +234,7 @@ def main():
         print(f"Avg FPS:{FPS} MIN-Avg-FPS: {min_FPS} MAX-Avg-FPS: {max_FPS}\n")
         cv2.putText(im0, f"Frame: {frame_id} Avg FPS:{FPS}",(7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
         cv2.putText(im0, f"total person: {EER.get_total_person()}",(7, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
-        cv2.putText(im0, f"object label: id-confidence-distance_to_entry_line-state",(7, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(im0, f"object label: id-detection confidence-state",(7, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                            
         p = Path(p)
         save_path = str(save_dir / p.name)
