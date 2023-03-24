@@ -48,7 +48,7 @@ class Entry_Exit_REID(object):
             "frame_indices":[]
         }
         self.EER_recorder = []
-        self.contours = get_contours(entry_area_config)
+        self.contours = self.get_contours(entry_area_config)
         
         # Reid model inisialization        
         print("CUDA is active?: ", torch.cuda.is_available())
