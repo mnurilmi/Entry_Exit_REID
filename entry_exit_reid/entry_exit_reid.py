@@ -34,6 +34,7 @@ class Entry_Exit_REID(object):
         feat_extractor,
         feat_match_thresh,
         save_patch_dir = None,
+        feat_history = 5
         ):
         self.frame_id = 0
         self.last_id = 0
@@ -54,6 +55,7 @@ class Entry_Exit_REID(object):
         print("CUDA is active?: ", torch.cuda.is_available())
         self.feat_extractor = feat_extractor
         self.feat_match_thresh = feat_match_thresh 
+        self.feat_history = feat_history
         
         if save_patch_dir != None:
             self.save_patch_dir = save_patch_dir
@@ -177,6 +179,7 @@ class Entry_Exit_REID(object):
             centroids[index][1] = self.img_h - bias
         ot[index].set_centroid((centroids[index][0],centroids[index][1]))
         ot[index].update_feat(feats_np[index])
+        # print(type(ot[index].get_feat()))
 
     def set_ids(self, ot, feats_np, patches, centroids):
         """Set IDs (ID Assigner)
@@ -215,8 +218,8 @@ class Entry_Exit_REID(object):
         t_last_id = ot[i].get_id()                          # track last ID
         t_last_state = ot[i].get_last_state()               # track last state
         is_passed = self.is_passed(ot[i].get_centroid())    # whether track passed the entry area or not
-        feat = ot[i].get_feat()                             # track feature
-
+        feat = ot[i].get_feat()[-1]                             # track feature
+        # print(len(ot[i].get_feat()))
         if t_last_id == -1:
             if not is_passed:
                 # set new id, last state unchanged (tracked)
@@ -224,18 +227,28 @@ class Entry_Exit_REID(object):
             else:
                 ot[i].set_last_state(TrackState_.Matching)
                 # matching db
-                is_match, registered_object = self.matching_db(feat)
-                if is_match and not self.db[registered_object.get_id()]["being_used"]:
-                    ot[i].set_id(registered_object.get_id())
-                    self.db[registered_object.get_id()]["being_used"] = True
-                else:
+                ot[i] = self.matching_db(feat, ot[i])
+                # if is_match and not self.db[registered_object.get_id()]["being_used"]:
+                # if is_match:
+                #     ot[i].set_id(match_id)
+                #     ot[i].set_val_counts(match_id)
+                    # self.db[registered_object.get_id()]["being_used"] = True
+                # else:
                     # set new id and start tracking as usual
-                    ot[i].set_id(self.next_id())
+                    # ot[i].set_id(self.next_id())
+                # ot[i].set_id_validation(ot[i].get_id())
         else:
             if not is_passed:
                 if t_last_state == TrackState_.Matching:
                     # Exit event condition, transition Matching to Tracked; save result
-                    self.output.append(t_last_id)
+                    # ot[i].set_id(ot[i].get_valid_id())
+                    # ot[i].set_id_validation = {}
+                    valid_id, count = ot[i].get_valid_val_counts()
+                    print("masuk:", valid_id)
+                    if valid_id != None and count > 5:
+                        ot[i].set_id(valid_id)
+                        
+                    self.output.append(ot[i].get_id())
                     self.set_EER_recorder(t_last_id, "Exit", self.get_local_time())
                     if self.save_patch_dir != None:
                         self.save_patch(f"{self.save_patch_dir}/sample_patch/{t_last_id} exit",patches[i])
@@ -252,19 +265,30 @@ class Entry_Exit_REID(object):
                         self.save_patch(f"{self.save_patch_dir}/sample_patch/{t_last_id} in",patches[i])
                 elif t_last_state == TrackState_.Matching:
                     # matching db until pass the entry area again
-                    is_match, registered_object = self.matching_db(feat)
-                    if is_match and not self.db[registered_object.get_id()]["being_used"]:
-                        ot[i].set_id(registered_object.get_id())
-                        self.db[registered_object.get_id()]["being_used"] = True
+                    ot[i] = self.matching_db(feat, ot[i])
+                    # print(self.db)
+                    # if is_match and not self.db[registered_object.get_id()]["being_used"]:
+                    # if is_match:
+                    #     ot[i].set_id(match_id)
+                    #     ot[i].set_val_counts(match_id)
+                        # self.db[registered_object.get_id()]["being_used"] = True
                         
-                        if t_last_id in self.db.keys():
-                            self.db[t_last_id]["being_used"] = False
-                    else:
+                        # if t_last_id in self.db.keys():
+                        #     self.db[t_last_id]["being_used"] = False
+                        # if t_last_id != registered_object.get_id():
+                        #     ot[i].reset_id_validation(t_last_id)
+                    # else:
                         # tracking as usual with current id
-                        pass
+                        # pass
+                    # ot[i].set_id_validation(ot[i].get_id())
                 else:
                     # tracking as usual
                     pass
+        # print(ot[i].get_id_validation())
+        # print("v:",ot[i].get_valid_id())
+        print(ot[i].get_val_counts())
+                
+            
                     
     def is_passed(self, centroid):
         in_entry_area = cv2.pointPolygonTest(self.contours[0], (int(centroid[0]), int(centroid[1])), True)
@@ -274,22 +298,58 @@ class Entry_Exit_REID(object):
         else:
             return True
 
-    def matching_db(self, feat_, metric = "cosine"):
+    def matching_db(self, feat_, ot):
         self.log_event("matching_db")
-        ids = list(self.db.keys())
-        # print("data in database: ", ids)
+        # ids = list(self.db.keys())
+        # print("data in database: ", ids)  
 
-        if len(ids) == 0:
-            return False, None
+        # if still empty
+        val_counts = ot.get_val_counts()
+        if not bool(val_counts):
+            # print("masuk")
+            val_idx = 0
+            ot, match = self.is_query_match_gallery(feat_, val_idx, ot)
+            if match != None:
+                ot.set_val_counts(match)
+            else:
+                ot.set_id(self.next_id())
+        else:
+            # print("masuk2")
+            match_ids = []
+            for key, val_idx in val_counts.items(): 
+                print(key)
+                ot, match = self.is_query_match_gallery(feat_, val_idx, ot)
+                match_ids.append(match)
+                
+            for match in match_ids:
+                if match != None:
+                    ot.set_val_counts(match)
+                else:
+                    ot.set_id(self.next_id())
 
-        query = feat_
+        return ot
+            
+            
+    def is_query_match_gallery(self, feat_, val_idx, ot, metric = "cosine"):
+        query = np.array([feat_])
         gallery = []
-        for id_ in ids:
-            gallery.extend(self.db[id_]["registered_object"].get_feat())
+        gallery_ids = []
+        # print(self.db.keys())
+        print("v:", val_idx)
+        for id_ in self.db.keys():
+            feats = np.array(self.db[id_]["registered_object"].get_feat())
+            # print(feats.shape)
+            if  val_idx < feats.shape[0]:
+                gallery_ids.append(id_)
+                gallery.append(feats[val_idx])
+
+        if len(gallery_ids) == 0:
+            return ot, None
             
         query = np.array(query)
         gallery = np.array(gallery)
-
+        # print(query.shape)
+        # print(gallery.shape)
         # Similarity calculation (default cosine)
         ds = distance.cdist(
                     query,
@@ -297,19 +357,19 @@ class Entry_Exit_REID(object):
                     metric
                 )[-1]
         ds = ds.tolist()
-        match = ids[self.argmin(ds)] # get the gallery ID that most similar to the query
-        
+        match = gallery_ids[self.argmin(ds)] # get the gallery ID that most similar to the query
+
         print("\tSCORE: ", ds)
-        print(min(ds), "-", ids[self.argmin(ds)])
-        
+        print(min(ds), "-", gallery_ids[self.argmin(ds)])
+
         if  min(ds) <= self.feat_match_thresh:
             self.log_event("match")
             self.system_recorder["frame_indices"].append(self.frame_id)
-            
-            o = self.db[match]["registered_object"]
-            return True, o
+            ot.set_id(match)
+            return ot, match
         else:
-            return False, None  
+            return ot, None
+
 
     def save_2_db(self, t):
         # saving feat to db

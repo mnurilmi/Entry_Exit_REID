@@ -5,6 +5,7 @@ import os.path as osp
 import copy
 import torch
 import torch.nn.functional as F
+from collections import deque
 
 from .kalman_filter import KalmanFilter
 from tracker import matching
@@ -12,7 +13,7 @@ from .basetrack import BaseTrack, TrackState
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score):
+    def __init__(self, tlwh, score, feat_history = 10):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -23,8 +24,14 @@ class STrack(BaseTrack):
         self.score = score
         self.tracklet_len = 0
 
-        self.feat = np.array([])
+        # =====EER adaptation=====
+        # self.feat = np.array([])
+        self.feat_history = feat_history
+        self.feat = deque([], maxlen = self.feat_history)
         self.last_state_ = TrackState.Tracked
+        self.id_validation = {}
+        self.val_counts = {}
+        # =====end of adaptation=====
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -49,7 +56,7 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
-        # =====id assigner adaptation=====
+        # =====EER adaptation=====
         self.track_id_ = -1
         # =====end of adaptation=====
 
@@ -148,7 +155,7 @@ class STrack(BaseTrack):
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
 
-    # =====id assigner adaptation=====
+    # =====EER adaptation=====
     def get_id(self):
         # print("===get id===")
         return self.track_id_
@@ -156,20 +163,13 @@ class STrack(BaseTrack):
     def set_id(self, id_):
         self.track_id_ = id_
         # print("===id- ", temp, "-> ", self.track_id_, " ===")
-
-    # def get_temp_id(self):
-    #     # print("===get id===")
-    #     return self.temp_track_id_
-    
-    # def set_temp_id(self, id_):
-    #     self.temp_track_id_ = id_
         
     def get_last_state(self):   
         # print("===get last state===")
         return self.last_state_
     
     def set_last_state(self, state_):
-        temp = self.last_state_
+        # temp = self.last_state_
         self.last_state_ = state_
         # print("===last state- ", temp, "-> ", self.last_state_, " ===")
     
@@ -177,17 +177,52 @@ class STrack(BaseTrack):
         # print("===get feat===")
         return self.feat
 
-    def update_feat(self, feat_, feat_length = 1):
-        f = self.feat.copy().tolist()
+    def update_feat(self, feat_, feat_history = 10):
+        if feat_history != self.feat_history:
+            self.feat = deque([], maxlen = feat_history)
+        self.feat.append(feat_)
+        # f = self.feat.copy().tolist()
         
-        if len(f)<feat_length:
-            f.append(feat_)
-        else:
-            f.pop(0)
-            f.append(feat_)
-        self.feat = np.array(f)
+        # if len(f)<feat_length:
+        #     f.append(feat_)
+        # else:
+        #     f.pop(0)
+        #     f.append(feat_)
+        # self.feat = np.array(f)
         # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
 
+    # def set_id_validation(self, id_):
+    #     if id_ not in self.id_validation.keys():
+    #         self.id_validation[id_] = 1
+    #     self.id_validation[id_] += 1
+    
+    # def reset_id_validation(self, id_):
+    #     self.id_validation[id_] = 0
+    
+    # def get_id_validation(self):
+    #     return self.id_validation
+    
+    # def get_valid_id(self):
+    #     if len(self.id_validation.keys())!=0:
+    #         return max(self.id_validation, key = self.id_validation.get)
+    #     else:
+    #         return None
+    
+    def set_val_counts(self, id_):
+        if id_ not in self.val_counts.keys():
+            self.val_counts[id_] = 0
+        else:
+            self.val_counts[id_] += 1
+    
+    def get_val_counts(self):
+        return self.val_counts
+
+    def get_valid_val_counts(self):
+      if len(self.val_counts.keys())!=0:
+          return max(self.val_counts, key = self.val_counts.get), max(self.val_counts.values())
+      else:
+          return None, None
+        
     def get_distance(self):
         return self.distance
 
