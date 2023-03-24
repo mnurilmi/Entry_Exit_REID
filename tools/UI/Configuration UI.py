@@ -5,22 +5,10 @@ import cv2
 import numpy as np
 import json
 
-
-
-# video_file = "test/jul2_miror.mp4"
-# file_name = "tools/UI/first_frame.jpg"
-# out = "configs/entry_line_config.json"
-
-# video_file = "test/jul2.mp4"
-# file_name = "tools/UI/first_frame.jpg"
-# out = "configs/entry_line_config2.json"
-
-# video_file = "test/jul2.mp4"
-# out = "configs/entry_line_config1.json"
-
 file_name = "tools/UI/first_frame.jpg"
 points = []
-line = {}
+entry_area_config = {}
+
 
 def getFirstFrame(videofile):
     vidcap = cv2.VideoCapture(videofile)
@@ -38,40 +26,47 @@ def getFirstFrame(videofile):
 def click_event(event, x, y, flags, params):
     # checking for left mouse clicks
     if event == cv2.EVENT_LBUTTONDOWN:
-        if len(points) >=2:
-            print("JUMLAH TITIK HARUS 2!")
-        elif len(points)<2:
+        index = klik["index"]
+        src = klik["src"]
+        klik["index"]+=1
+        print(index)
+        if len(points) <=4:
             # displaying the coordinates
             # on the Shell
             print(x, ' ', y)
-            points.append([x, y])
+            points.append((x,y))
             print(points)
 
-            # displaying the coordinates
+            # Displaying the coordinates
             # on the image window
             font = cv2.FONT_HERSHEY_SIMPLEX
             cv2.putText(new_img, str(x) + ',' +
                         str(y), (x,y), font,
                         1, (255, 0, 0), 2)
-                        
+            # case 4 points entry exit area (polygon)
             cv2.circle(new_img, (x, y), radius=1, color=(0, 0, 255), thickness=10)
-
-            if len(points) == 2:
-                #Line 1
-                # print(points)
-                cv2.line(new_img, (points[0][0],points[0][1]), (points[1][0],points[1][1]), line_color, line_thickness)
-                line["img_h"] = h
-                line["img_w"] = w
-                line["x1"] = points[0][0]
-                line["y1"] = points[0][1]
-                line["x2"] = points[1][0]
-                line["y2"] = points[1][1]
-                # print("gradien: ", -1*(line["y1"]-line["y2"])/(line["x1"]-line["x2"]))
-                # line["gradien"] = -1*(line["y1"]-line["y2"])/(line["x1"]-line["x2"])
-                print(line)
-                
+            if index > 0 and index <4 :
+                 cv2.line(new_img, points[index-1],points[index],line_color, line_thickness)
+                 cv2.line(src, points[index-1],points[index],(255), 3)
+                 
+            if len(points) == 4:
+                cv2.line(new_img, points[index],points[0],line_color, line_thickness)
+                cv2.line(src, points[index],points[0],( 255 ), 3)
+                entry_area_config["img_h"] = h
+                entry_area_config["img_w"] = w
+                entry_area_config["points"] = points                
+                # entry_area_config["point1"] = points[0]
+                # entry_area_config["point2"] = points[1]
+                # entry_area_config["point3"] = points[2]
+                # entry_area_config["point4"] = points[3]
+                # contours, _ = cv2.findContours(src, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                # entry_area_config["contours"] = contours
+                # print(len(contours))
+                # print(cv2.pointPolygonTest(contours[0], points[4], True))
+                # cv2.imshow("a", src)
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.imshow(window_name, new_img)
+        
 
 def get_points_2orthogonalplane():
     return [[], []]
@@ -81,7 +76,8 @@ if __name__ == "__main__":
 
     parser.add_argument('--source', help='testing datas location')
     opt = parser.parse_args()
-
+    # global index
+    # index = 0
     # vid_name = opt.source.split("\\")[-1]
 
     # print(vid_name)
@@ -113,6 +109,10 @@ if __name__ == "__main__":
         )
 
         new_img = img
+        klik = {
+            "index" : 0,
+            "src": np.zeros((new_img.shape[0], new_img.shape[1]), dtype=np.uint8) 
+        }
         # new_img = cv2.circle(new_img, p2, radius=1, color=(0, 0, 255), thickness=10)
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.imshow(window_name, new_img)
@@ -123,24 +123,10 @@ if __name__ == "__main__":
     
         # close the window
         cv2.destroyAllWindows()
-
-        print("PLEASE INPUT THE ENTRY AREA POSITION")
-        pos = input("Entry area position (r/l) (right/left): ")
-        if pos=="r" or pos == "R" or pos == "right":
-            line["entry_area_position"] = "right"
-            json_object = json.dumps(line, indent=4)
-            with open(out, "w") as outfile:
-                outfile.write(json_object)
-            print("CONFIGURATION SUCCEED")
-        elif pos=="l" or pos == "L" or pos == "left":
-            line["entry_area_position"] = "left"
-            json_object = json.dumps(line, indent=4)
+        if len(entry_area_config["points"]) == 4:
+            json_object = json.dumps(entry_area_config, indent=4)
             with open(out, "w") as outfile:
                 outfile.write(json_object)
             print("CONFIGURATION SUCCEED")
         else:
             print("CONFIGURATION FAILED, need Entry area position!")
-
-
-    else:
-        print("CONFIGURATION FAILED")

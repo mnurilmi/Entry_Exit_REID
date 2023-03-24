@@ -39,8 +39,9 @@ def read_config(config):
         j = json.load(openfile)
     return j
 
-def get_entry_line_points(j):
-    return [float(j["x1"]), float(j["x2"])], [float(j["y1"]), float(j["y2"])]
+def get_entry_area_points(j):
+    # return [float(j["x1"]), float(j["x2"])], [float(j["y1"]), float(j["y2"])]
+    return j["points"]
 
 # Start Code
 def main():
@@ -105,16 +106,16 @@ def main():
         )
 
     # Entry Exit REID Inisialization
-    jfile = read_config(opt.entry_line_config)
-    x, y = get_entry_line_points(jfile)
+    jfile = read_config(opt.entry_area_config)
+    entry_area_points = get_entry_area_points(jfile)
     is_with_EER = not opt.without_EER
     
     if is_with_EER:
         EER = Entry_Exit_REID(
-            entry_line_config = jfile,
+            entry_area_config = jfile,
             feat_extractor = reid_model,
             feat_match_thresh = opt.feature_match_thresh,
-            save_patch_dir= save_dir # optional
+            save_patch_dir= save_dir   # optional (to see correctness the cropped bbox)
         )
    
     # Start Detection and Tracking
@@ -200,7 +201,6 @@ def main():
                     tid = online_targets[i].get_id()
                     tls = online_targets[i].decode_state(online_targets[i].get_last_state())
                     tc = online_targets[i].get_centroid()
-                    # td = online_targets[i].get_distance()  # centroid distance perpendicular to entry line
                     label = '{0:}-{1:.2f}-{2:}'.format(tid, conf, tls)
                     cv2.circle(im0, tc, radius=2, color=(0, 0, 255), thickness=2)
                 else:
@@ -209,14 +209,15 @@ def main():
                     label = '{0:}-{1:.2f}'.format(tid, conf)
                 
                 if save_img or view_img:
-                    # Add bboxes and labelsto image
+                    # Add bboxes and labels to image
                     plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
                     
-                    # visualize entry line
-                    top_line, bottom_line = EER.get_top_bottom_line() # top and bottom line is a horizontal line to 2 points of entry line
-                    cv2.line(im0,(int(x[0]),int(y[0])),(int(x[1]),int(y[1])),(0,255,0),1)
-                    cv2.line(im0, top_line[0],top_line[1],(0,255,0),1)
-                    cv2.line(im0, bottom_line[0], bottom_line[1],(0,255,0),1)
+                    # visualize entry area (4 points polygon)
+                    cv2.line(im0, entry_area_points[0], entry_area_points[1], (0,255,0),1)  
+                    cv2.line(im0, entry_area_points[1], entry_area_points[2], (0,255,0),1)  
+                    cv2.line(im0, entry_area_points[2], entry_area_points[3], (0,255,0),1)  
+                    cv2.line(im0, entry_area_points[3], entry_area_points[0], (0,255,0),1)  
+                    
                 # online_tlwhs.append(tlwh)
                 # online_tid.append(tid)
                 # online_tlbr.append(tlbr)
@@ -311,7 +312,7 @@ if __name__ == "__main__":
 
     # Entry Exit REID Parser
     parser.add_argument('--without_EER', action='store_true', help='without id assigner')
-    parser.add_argument('--entry_line_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry line config path')
+    parser.add_argument('--entry_area_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry area config path')
 
     opt = parser.parse_args()
     print(opt)
