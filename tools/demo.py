@@ -265,7 +265,6 @@ def main():
 
     if not opt.without_EER:
         EER.log_report()
-        # EER.sample_db()
         EER.log_output()
         EER.generate_EER_recorder_csv(str(save_dir / p.name.split(".")[0]))
         

@@ -26,6 +26,7 @@ class STrack(BaseTrack):
 
         # =====EER adaptation=====
         # self.feat = np.array([])
+        self.temp_id_ = None
         self.feat_history = feat_history
         self.feat = deque([], maxlen = self.feat_history)
         self.last_state_ = TrackState.Tracked
@@ -163,7 +164,13 @@ class STrack(BaseTrack):
     def set_id(self, id_):
         self.track_id_ = id_
         # print("===id- ", temp, "-> ", self.track_id_, " ===")
-        
+    
+    def get_temp_id(self):
+        return self.temp_id_
+    
+    def set_temp_id(self, id_):
+        self.temp_id_ = id_
+    
     def get_last_state(self):   
         # print("===get last state===")
         return self.last_state_
@@ -190,23 +197,6 @@ class STrack(BaseTrack):
         #     f.append(feat_)
         # self.feat = np.array(f)
         # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
-
-    # def set_id_validation(self, id_):
-    #     if id_ not in self.id_validation.keys():
-    #         self.id_validation[id_] = 1
-    #     self.id_validation[id_] += 1
-    
-    # def reset_id_validation(self, id_):
-    #     self.id_validation[id_] = 0
-    
-    # def get_id_validation(self):
-    #     return self.id_validation
-    
-    # def get_valid_id(self):
-    #     if len(self.id_validation.keys())!=0:
-    #         return max(self.id_validation, key = self.id_validation.get)
-    #     else:
-    #         return None
     
     def set_val_counts(self, id_):
         if id_ not in self.val_counts.keys():
