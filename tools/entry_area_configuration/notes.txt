@@ -1,0 +1,1 @@
+python "tools/entry_area_configuration/entry_area_configuration.py" --source "testing_datas\loc1_1.mp4"

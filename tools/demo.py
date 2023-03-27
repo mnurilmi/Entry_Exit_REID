@@ -312,6 +312,7 @@ if __name__ == "__main__":
     # Entry Exit REID Parser
     parser.add_argument('--without_EER', action='store_true', help='without id assigner')
     parser.add_argument('--entry_area_config', type=str, default='test/testing_vid1/testing_vid1.json', help='entry area config path')
+    parser.add_argument("--match_count_thresh", type=int, default=3, help="minimum matched count to determine final ID")
 
     opt = parser.parse_args()
     print(opt)

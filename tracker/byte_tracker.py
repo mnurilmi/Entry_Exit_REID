@@ -31,7 +31,8 @@ class STrack(BaseTrack):
         self.feat = deque([], maxlen = self.feat_history)
         self.last_state_ = TrackState.Tracked
         self.id_validation = {}
-        self.val_counts = {}
+        self.val_ids = {}
+        self.match_count = {}
         # =====end of adaptation=====
 
     def predict(self):
@@ -198,18 +199,26 @@ class STrack(BaseTrack):
         # self.feat = np.array(f)
         # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
     
-    def set_val_counts(self, id_):
-        if id_ not in self.val_counts.keys():
-            self.val_counts[id_] = 0
+    def set_val_ids_and_count(self, id_):
+        if id_ not in self.val_ids.keys():
+            self.val_ids[id_] = 1
+            self.match_count[id_] = 1
         else:
-            self.val_counts[id_] += 1
-    
-    def get_val_counts(self):
-        return self.val_counts
+            self.val_ids[id_] += 1
+            self.match_count[id_] += 1
+            
+    def reset_val_ids(self, id_):
+        self.val_ids[id_] = 0
+        
+    def get_val_ids(self):
+        return self.val_ids
 
-    def get_valid_val_counts(self):
-      if len(self.val_counts.keys())!=0:
-          return max(self.val_counts, key = self.val_counts.get), max(self.val_counts.values())
+    def get_match_count(self):
+        return self.match_count
+        
+    def get_max_match_count(self):
+      if len(self.match_count.keys())!=0:
+          return max(self.match_count, key = self.match_count.get), max(self.match_count.values())
       else:
           return None, None
         

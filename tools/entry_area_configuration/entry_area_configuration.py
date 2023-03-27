@@ -1,3 +1,7 @@
+"""Entry-Exit Area Configuration
+created by: 
+    Muhammad Nur Ilmi - mnurilmi18@gmail.com
+"""
 # importing the module
 import argparse
 import os
@@ -5,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-file_name = "tools/UI/first_frame.jpg"
+file_name = "tools/entry_area_configuration/first_frame.jpg"
 points = []
 entry_area_config = {}
 
@@ -14,11 +18,11 @@ def getFirstFrame(videofile):
     vidcap = cv2.VideoCapture(videofile)
     success, image = vidcap.read()
     if success:
-        cv2.imwrite("tools/UI/first_frame.jpg", image)  # save frame as JPEG file
-        print("sukses terekstrak")
+        cv2.imwrite(file_name, image)  # save frame as JPEG file
+        print("frame extraction succeed")
         return True
     else:
-        print("gagal")
+        print("frame extraction failed")
         return False
 
 # function to display the coordinates of
@@ -55,15 +59,6 @@ def click_event(event, x, y, flags, params):
                 entry_area_config["img_h"] = h
                 entry_area_config["img_w"] = w
                 entry_area_config["points"] = points                
-                # entry_area_config["point1"] = points[0]
-                # entry_area_config["point2"] = points[1]
-                # entry_area_config["point3"] = points[2]
-                # entry_area_config["point4"] = points[3]
-                # contours, _ = cv2.findContours(src, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-                # entry_area_config["contours"] = contours
-                # print(len(contours))
-                # print(cv2.pointPolygonTest(contours[0], points[4], True))
-                # cv2.imshow("a", src)
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.imshow(window_name, new_img)
         
@@ -76,11 +71,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--source', help='testing datas location')
     opt = parser.parse_args()
-    # global index
-    # index = 0
-    # vid_name = opt.source.split("\\")[-1]
-
-    # print(vid_name)
+    
     video_file = os.path.join(opt.source)
     out = os.path.join(opt.source.split(".")[0] + ".json")
 
