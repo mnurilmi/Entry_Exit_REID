@@ -40,7 +40,6 @@ def read_config(config):
     return j
 
 def get_entry_area_points(j):
-    # return [float(j["x1"]), float(j["x2"])], [float(j["y1"]), float(j["y2"])]
     return j["points"]
 
 # Start Code
@@ -213,10 +212,10 @@ def main():
                     plot_one_box(tlbr, im0, label=label, color=colors[int(tid) % len(colors)], line_thickness=1)
                     
                     # visualize entry area (4 points polygon)
-                    cv2.line(im0, entry_area_points[0], entry_area_points[1], (0,255,0),1)  
-                    cv2.line(im0, entry_area_points[1], entry_area_points[2], (0,255,0),1)  
-                    cv2.line(im0, entry_area_points[2], entry_area_points[3], (0,255,0),1)  
-                    cv2.line(im0, entry_area_points[3], entry_area_points[0], (0,255,0),1)  
+                    cv2.line(im0, tuple(entry_area_points[0]), tuple(entry_area_points[1]), (0,255,0),1)  
+                    cv2.line(im0, tuple(entry_area_points[1]), tuple(entry_area_points[2]), (0,255,0),1)  
+                    cv2.line(im0, tuple(entry_area_points[2]), tuple(entry_area_points[3]), (0,255,0),1)  
+                    cv2.line(im0, tuple(entry_area_points[3]), tuple(entry_area_points[0]), (0,255,0),1)  
                     
                 # online_tlwhs.append(tlwh)
                 # online_tid.append(tid)
@@ -225,7 +224,7 @@ def main():
                 # results.append(
                 #     f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
                 # )      
-        timer.toc() # important process processing time
+        timer.toc() # processing time
         
         FPS = int(1. / max(1e-5, timer.average_time))
         if FPS < min_FPS and not FPS == 0:
@@ -234,7 +233,8 @@ def main():
             max_FPS = FPS
         print(f"Avg FPS:{FPS} MIN-Avg-FPS: {min_FPS} MAX-Avg-FPS: {max_FPS}\n")
         cv2.putText(im0, f"Frame: {frame_id} Avg FPS:{FPS}",(7, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
-        cv2.putText(im0, f"total person: {EER.get_total_person()}",(7, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
+        if is_with_EER:
+            cv2.putText(im0, f"total person: {EER.get_total_person()}",(7, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
         cv2.putText(im0, f"object label: id-detection confidence-state",(7, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 1, cv2.LINE_AA)
                            
         p = Path(p)
@@ -263,7 +263,7 @@ def main():
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         print(f"Results saved to {save_dir}{s}")
 
-    if not opt.without_EER:
+    if is_with_EER:
         EER.log_report()
         EER.log_output()
         EER.generate_EER_recorder_csv(str(save_dir / p.name.split(".")[0]))

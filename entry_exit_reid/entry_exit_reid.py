@@ -32,7 +32,7 @@ class Entry_Exit_REID(object):
         entry_area_config,        
         feat_extractor,
         feat_match_thresh,
-        match_count_thresh = 6,
+        match_count_thresh = 3,
         save_patch_dir = None
         ):
         self.frame_id = 0
@@ -51,8 +51,11 @@ class Entry_Exit_REID(object):
         self.EER_recorder = []
         self.contours = self.get_contours(entry_area_config)
         
-        # Reid model inisialization        
+        torch.backends.cudnn.enabled = True 
         print("CUDA is active?: ", torch.cuda.is_available())
+        print("cudnn enable?", torch.backends.cudnn.is_available())
+        
+        # Reid model inisialization        
         self.feat_extractor = feat_extractor
         self.feat_match_thresh = feat_match_thresh 
         self.match_count_threshold = match_count_thresh
@@ -76,10 +79,10 @@ class Entry_Exit_REID(object):
         self.img_h = config["img_h"]
         self.img_w = config["img_w"]
         src = np.zeros((config["img_h"], config["img_w"]), dtype=np.uint8) 
-        cv2.line(src, config["points"][0], config["points"][1],(255), 3)
-        cv2.line(src, config["points"][1], config["points"][2],(255), 3)
-        cv2.line(src, config["points"][2], config["points"][3],(255), 3)
-        cv2.line(src, config["points"][3], config["points"][0],(255), 3)
+        cv2.line(src, tuple(config["points"][0]), tuple(config["points"][1]),(255,0,0), 3)
+        cv2.line(src, tuple(config["points"][1]), tuple(config["points"][2]),(255,0,0), 3)
+        cv2.line(src, tuple(config["points"][2]), tuple(config["points"][3]),(255,0,0), 3)
+        cv2.line(src, tuple(config["points"][3]), tuple(config["points"][0]),(255,0,0), 3)
         contours, _ = cv2.findContours(src, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # print(contours)
         # cv2.imwrite(f"a.jpg", src)
@@ -105,7 +108,7 @@ class Entry_Exit_REID(object):
         self.frame_id += 1
         self.system_recorder["total_person_in_frame"].append(len(ot))
         if len(ot) == 0:
-            # contonue to next frame if no tracks detected
+            # continue to next frame if no tracks detected
             return []
         
         im1 = im0.copy()
@@ -124,21 +127,18 @@ class Entry_Exit_REID(object):
         Returns:
             centroids, patches: list of centroids, list of patches
         """
-        patches = []
-        tlbrs = []
-        for i in range(len(ot)):
-            tlbrs.append(ot[i].tlbr)
-            patches.append(self.extract_patch(im1, ot[i].tlbr))
+        tlbrs = [ot[i].tlbr for i in range(len(ot))]
+        patches = [self.extract_patch(im1, ot[i].tlbr) for i in range(len(ot))]
 
         tlbrs_np = np.array(tlbrs)
         
         # bottom centroid
-        Mx = np.array([[1/2],[0],[1/2],[0]]) # left,right
-        My = np.array([[0],[0],[0],[1]])     # top bottom
+        Mx = np.array([[1/2],[0],[1/2],[0]]) # left, right
+        My = np.array([[0],[0],[0],[1]])     # top, bottom
 
         # # Middle centroid (center of bbox)
-        # Mx = np.array([[1/2],[0],[1/2],[0]]) # left,right
-        # My = np.array([[0],[0],[0],[1]])     # top bottom
+        # Mx = np.array([[1/2],[0],[1/2],[0]]) # left, right
+        # My = np.array([[0],[0],[0],[1]])     # top, bottom
 
         Cx = np.dot(tlbrs_np, Mx).astype(int).flatten()
         Cy = np.dot(tlbrs_np, My).astype(int).flatten()
@@ -230,7 +230,7 @@ class Entry_Exit_REID(object):
         t_last_id = ot[i].get_id()                          # track last ID
         t_last_state = ot[i].get_last_state()               # track last state
         is_in_entry_area = self.is_in_entry_area(ot[i].get_centroid())    # whether track passed the entry area or not
-        feat = ot[i].get_feat()[-1]                         # current track feature to be saved or matched depends on state
+        # feat = ot[i].get_feat()[-1]                         # current track feature to be saved or matched depends on state
         
         if t_last_id == -1:
             if not is_in_entry_area:
@@ -239,7 +239,7 @@ class Entry_Exit_REID(object):
             else:
                 ot[i].set_last_state(TrackState_.Matching)
                 # matching db for the first time
-                ot[i] = self.matching_db(feat, ot[i])
+                ot[i] = self.matching_db(ot[i])
         else:
             if not is_in_entry_area:
                 if t_last_state == TrackState_.Matching:
@@ -271,7 +271,7 @@ class Entry_Exit_REID(object):
                         
                 elif t_last_state == TrackState_.Matching:
                     # matching db until the track leaves the entry area
-                    ot[i] = self.matching_db(feat, ot[i])
+                    ot[i] = self.matching_db(ot[i])
                     
                 else:
                     # tracking as usual
@@ -279,7 +279,7 @@ class Entry_Exit_REID(object):
                 
         # print(ot[i].get_id())
         # print(ot[i].get_max_match_count())  
-        print(ot[i].get_match_count())   
+        print(ot[i].get_match_count(), end = " ")   
                     
     def is_in_entry_area(self, centroid):
         if cv2.pointPolygonTest(self.contours[0], (int(centroid[0]), int(centroid[1])), True) < 0:
@@ -288,7 +288,7 @@ class Entry_Exit_REID(object):
         else:
             return True
 
-    def matching_db(self, feat_, ot_):
+    def matching_db(self, ot_):
         """Matching DB and set the current track ID
             When current track feature match with feature on the gallery,
             the matched ID will be save to "val_id and match_count" dictionary. 
@@ -301,48 +301,64 @@ class Entry_Exit_REID(object):
         # ids = list(self.db.keys())
         # print("data in database: ", ids)  
         ot = ot_
-        val_ids = ot.get_val_ids()
-        if not bool(val_ids):
-            # if val_ids still empty, gallery index will start from index 0
-            val_id_index = 0
-            ot, match = self.is_query_match_gallery(feat_, None, val_id_index, ot)
-            if match != None:
-                ot.set_id(match)
-            else:
-                if ot.get_temp_id() == None:
-                    # print("next ID!!!!!!!!!!!!!!!!!!!!!")
-                    ot.set_id(self.next_id())
-                    ot.set_temp_id(ot.get_id())
-                else:
-                    ot.set_id(ot.get_temp_id())
-            print(ot.get_id())
-            if ot.get_id() == -1:
-                print("BUUUUUUUUUUUUUUUUUUGGGGG")
-                print(ot.get_temp_id())
-                print(ot.get_id())
+        # match_count = ot.get_match_count()
+        val_id_idx = ot.get_val_id_idx()
+        match_id = self.is_query_match_gallery(ot.get_feat()[-1], val_id_idx)
+        if match_id != None:
+            ot.set_id(match_id)
+            ot.set_match_count(match_id)            # increase the val_ids index and match_count
+            ot.set_val_id_idx()
         else:
-            # print("masuk2")
-            match_ids = []
-            for val_id, val_id_index in val_ids.items(): 
-                # print(key)
-                ot, match = self.is_query_match_gallery(feat_, val_id, val_id_index, ot)
-                match_ids.append(match)
-                
-            for match in match_ids:
-                if match != None:
-                    ot.set_id(match)                    # set current track id
-                else:
-                    if ot.get_temp_id() == None:
-                        # print("next ID!!!!!!!!!!!!!!!!!!!!!")
-                        ot.set_id(self.next_id())
-                        ot.set_temp_id(ot.get_id())
-                    else:
-                        ot.set_id(ot.get_temp_id())
-
+            if ot.get_temp_id() == None:
+                # print("next ID!!!!!!!!!!!!!!!!!!!!!")
+                ot.set_id(self.next_id())
+                ot.set_temp_id(ot.get_id())
+            else:
+                ot.set_id(ot.get_temp_id())
+        
         return ot # return updated current track
+        
+        
+        # match_id_idxs = ot.get_match_id_idxs()
+        
+        # if not bool(match_count):
+        #     # if val_ids still empty, gallery index will start from index 0
+        #     ot, match_id = self.is_query_match_gallery(ot.get_feat()[-1], None, 0, ot)
+            
+        #     if match_id != None:
+        #         ot.set_id(match_id)
+        #         ot.set_match_count(match_id)            # increase the val_ids index and match_count
+        #         ot.set_match_id_idxs(match_id)
+        #     else:
+        #         if ot.get_temp_id() == None:
+        #             # print("next ID!!!!!!!!!!!!!!!!!!!!!")
+        #             ot.set_id(self.next_id())
+        #             ot.set_temp_id(ot.get_id())
+        #         else:
+        #             ot.set_id(ot.get_temp_id())
+        # else:
+        #     match_ids = []
+        #     for key, _ in match_count.items(): 
+        #         ot, match_id = self.is_query_match_gallery(ot.get_feat()[-1], key, match_id_idxs[key], ot)
+        #         ot.set_match_id_idxs(key)
+        #         match_ids.append(match_id)
+                
+        #     for match_id in match_ids:
+        #         if match_id != None:
+        #             ot.set_id(match_id)                     # set current track id
+        #             ot.set_match_count(match_id)            # increase the val_ids index and match_count
+        #         else:
+        #             if ot.get_temp_id() == None:
+        #                 # print("next ID!!!!!!!!!!!!!!!!!!!!!")
+        #                 ot.set_id(self.next_id())
+        #                 ot.set_temp_id(ot.get_id())
+        #             else:
+        #                 ot.set_id(ot.get_temp_id())
+
+
             
             
-    def is_query_match_gallery(self, feat_, val_id, val_id_index, ot, metric = "cosine"):
+    def is_query_match_gallery(self, feat_, match_id_idx, metric = "cosine"):
         """Matching one query to many gallery at certain index
 
         Args:
@@ -356,26 +372,26 @@ class Entry_Exit_REID(object):
         """
         gallery = []
         gallery_ids = []
-        gallery_index = val_id_index
-        print("v:", val_id_index)
+        gallery_index = match_id_idx
+        print("v:", match_id_idx)
         for id_ in self.db.keys():
             # collect feature from the gallery at some index based on feature history
             feats = self.db[id_]["registered_object"].get_feat()
-            if  gallery_index >= len(feats) and val_id != None:
-                ot.reset_val_ids(val_id)
-            gallery_ids.append(id_)
-            gallery.append(np.array(feats[gallery_index]))
-               
+            # if  gallery_index >= len(feats) and val_id != None:
+            #     ot.reset_val_ids(val_id)
+            #     gallery_index = 0
+            if gallery_index < len(feats):
+                gallery_ids.append(id_)
+                gallery.append(np.array(feats[gallery_index]))
+                
+        if len(gallery_ids) == 0:
+            return None    
 
         self.system_recorder["total_ID_tobe_matched_by_query"].append(len(gallery_ids))  
-        # if len(gallery_ids) == 0:
-        #     return ot, None
             
         query = np.array(feat_[np.newaxis,:])
         gallery = np.array(gallery)
-        # print(query.shape)
-        # print(gallery.shape)
-        
+
         # Similarity calculation (default cosine)
         ds = distance.cdist(
                     query,
@@ -383,7 +399,7 @@ class Entry_Exit_REID(object):
                     metric
                 )[-1]
         ds = ds.tolist()
-        match = gallery_ids[self.argmin(ds)] # get the gallery ID that most similar to the query
+        match_id = gallery_ids[self.argmin(ds)] # get the gallery ID that most similar to the query
         min_score = min(ds)
         
         print("\tSCORE: ", ds)
@@ -393,10 +409,10 @@ class Entry_Exit_REID(object):
             # A query match to the gallery if the minimum score below or equals to feat_match_thresh
             self.log_event("match")
             self.system_recorder["frame_indices"].append(self.frame_id)
-            ot.set_val_ids_and_count(match)            # increase the val_ids index and match_count
-            return ot, match
+            
+            return match_id
         else:
-            return ot, None
+            return None
 
     def save_2_db(self, t):
         # saving feature to db

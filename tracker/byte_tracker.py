@@ -30,8 +30,9 @@ class STrack(BaseTrack):
         self.feat_history = feat_history
         self.feat = deque([], maxlen = self.feat_history)
         self.last_state_ = TrackState.Tracked
-        self.id_validation = {}
-        self.val_ids = {}
+
+        # self.match_id_idxs = {}
+        self.val_id_idx = 0
         self.match_count = {}
         # =====end of adaptation=====
 
@@ -189,35 +190,27 @@ class STrack(BaseTrack):
         if feat_history != self.feat_history:
             self.feat = deque([], maxlen = feat_history)
         self.feat.append(feat_)
-        # f = self.feat.copy().tolist()
-        
-        # if len(f)<feat_length:
-        #     f.append(feat_)
-        # else:
-        #     f.pop(0)
-        #     f.append(feat_)
-        # self.feat = np.array(f)
-        # print("===fitur terupdate dengan panjang: ", self.feat.shape, "====")
     
-    def set_val_ids_and_count(self, id_):
-        if id_ not in self.val_ids.keys():
-            self.val_ids[id_] = 1
+    def set_val_id_idx(self):
+        self.val_id_idx += 1
+        
+    def get_val_id_idx(self):
+        return self.val_id_idx
+
+    def reset_val_id_idx(self):
+        self.val_id_idx = 0
+
+    def set_match_count(self, id_):
+        if not id_ in self.match_count.keys():
             self.match_count[id_] = 1
         else:
-            self.val_ids[id_] += 1
             self.match_count[id_] += 1
-            
-    def reset_val_ids(self, id_):
-        self.val_ids[id_] = 0
-        
-    def get_val_ids(self):
-        return self.val_ids
 
     def get_match_count(self):
         return self.match_count
-        
+    
     def get_max_match_count(self):
-      if len(self.match_count.keys())!=0:
+      if len(self.match_count.keys()) != 0:
           return max(self.match_count, key = self.match_count.get), max(self.match_count.values())
       else:
           return None, None
@@ -247,7 +240,6 @@ class STrack(BaseTrack):
             return "In" 
         elif case == 5:
             return "Matching"
-
     # =====end of adaptation=====
 
 class BYTETracker(object):

@@ -48,7 +48,7 @@ def click_event(event, x, y, flags, params):
                         str(y), (x,y), font,
                         1, (255, 0, 0), 2)
             # case 4 points entry exit area (polygon)
-            cv2.circle(new_img, (x, y), radius=1, color=(0, 0, 255), thickness=10)
+            cv2.circle(new_img, (x, y), radius=3, color=(0, 0, 255), thickness=10)
             if index > 0 and index <4 :
                  cv2.line(new_img, points[index-1],points[index],line_color, line_thickness)
                  cv2.line(src, points[index-1],points[index],(255), 3)
