@@ -9,7 +9,18 @@ The entry-exit event detection component using the YOLOv7+ByteTrack achieved the
   <source media="(prefers-color-scheme: dark)"> 
   <img alt="system diagram" src="assets/images/System_Diagram.png">
 </picture>
+
 The system design can be seen in the picture above. The system consists of three subsystems, person detection, person tracking, and person re-identification. Each subsystem uses various models such as YOLOv7 (original and tiny), ByteTrack, and OSNet-x1. Person detection and person tracking are used to detect, track, and provide an initial ID to individuals in the frame. Meanwhile, the person re-identification subsystem is used to store descriptive information from individuals and recognize the same person when they enter or leave the area monitored by surveillance cameras. The model performance in the person detection and person re-identification subsystems is evaluated through the best hyperparameter tuning, while in the person tracking task, no training process is carried out because it uses a model-free tracking to reduce computational cost. For the Entry-Exit Re-ID system algorithm, the track results from the tracker will be the input for the system. The system will extract the centroid points (state determinator) and features of each track. Then, the tracklet attributes will be iteratively updated and each attribute will be assigned a corresponding ID based on feature matching (cosine similarity). The updated track will be returned from the system that consists valid ID.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)"> 
+  <img alt="Configuration gif" src="assets/gif/conf.gif" width="480" height="300">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)"> 
+  <img alt="sample output" src="assets/gif/Sample.gif" width="480" height="300">
+</picture>
 
 # Running
 An example running the system on loc1_1 video with YOLOv7+OSnet model
@@ -57,6 +68,7 @@ These two pictures below are the result samples of the system that running with 
   <source media="(prefers-color-scheme: dark)"> 
   <img alt="FP FN samples" src="assets/images/Results_FP_FN.png">
 </picture>
+
 
 # Acknowledgement
 This work has been supported by DIKE lab, FMIPA (Faculty of Natural Science and Mathematics), Gadjah Mada University.
