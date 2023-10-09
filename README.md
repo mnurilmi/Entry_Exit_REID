@@ -48,14 +48,14 @@ These two pictures below are the result samples of the system that running with 
 ## True Positive and True Negative Samples
 <picture>
   <source media="(prefers-color-scheme: dark)"> 
-  <img alt="system diagram" src="assets/images/Results_TP_TN.png">
+  <img alt="TP TN samples" src="assets/images/Results_TP_TN.png">
 </picture>
 
 ## False Positive and False Negative Samples
 
 <picture>
   <source media="(prefers-color-scheme: dark)"> 
-  <img alt="system diagram" src="assets/images/Results_FP_FN.png">
+  <img alt="FP FN samples" src="assets/images/Results_FP_FN.png">
 </picture>
 
 # Acknowledgement
