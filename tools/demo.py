@@ -96,7 +96,8 @@ def main():
         reid model type: 
                     'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25', 
                     'osnet_ibn_x1_0', 
-                    'osnet_ain_x1_0'
+                    'osnet_ain_x1_0',
+                    'mobilenetv2_x1_4'
     """ 
     reid_model = FeatureExtractor(
             model_name = "osnet_x1_0",
@@ -114,6 +115,7 @@ def main():
             entry_area_config = jfile,
             feat_extractor = reid_model,
             feat_match_thresh = opt.feature_match_thresh,
+            match_count_thresh = opt.match_count_thresh,
             save_patch_dir= save_dir   # optional (to see correctness the cropped bbox)
         )
    
@@ -224,7 +226,7 @@ def main():
                 # results.append(
                 #     f"{i + 1},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{online_targets[i].score:.2f},-1,-1,-1\n"
                 # )      
-        timer.toc() # processing time
+        timer.toc() # important process processing time
         
         FPS = int(1. / max(1e-5, timer.average_time))
         if FPS < min_FPS and not FPS == 0:
@@ -263,7 +265,7 @@ def main():
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if opt.save_txt else ''
         print(f"Results saved to {save_dir}{s}")
 
-    if is_with_EER:
+    if not opt.without_EER:
         EER.log_report()
         EER.log_output()
         EER.generate_EER_recorder_csv(str(save_dir / p.name.split(".")[0]))

@@ -1,20 +1,21 @@
-# =====requirements testing jetson=====
-numpy
-scipy
-Pillow==6.2.1
-matplotlib
-gdown
-PyYAML>=5.3.1
-requests>=2.23.0
-tqdm>=4.41.0
-pandas>=1.1.4
-seaborn>=0.11.0
-ipython  # interactive notebook
-psutil  # system utilization
-thop  # FLOPs computation
-lap
-tensorboard
-# opencv-python # cannot installed on ARM64, instead install it via https://www.forecr.io/blogs/installation/how-to-install-opencv-with-cuda-support
+# We use l4t-ml:r32.7.1-py3 base docker image,
+# So, some packages have been installed while build the image
+# The needed is different while running on jetson xavier
 
-imageio
-yacs
+# The available packages on the base docker image:
+#### TensorFlow 1.15.5
+#### PyTorch v1.10.0
+#### torchvision v0.11.0
+#### torchaudio v0.10.0
+#### onnx 1.11.0
+#### CuPy 9.2.0
+#### numpy 1.19.5
+#### numba 0.53.1
+#### OpenCV 4.5.0 (with CUDA)
+#### pandas 1.1.5
+#### scipy 1.5.4
+#### scikit-learn 0.24.2
+#### JupyterLab 2.2.9
+
+# The requirement for deployment is moved to dockerfile for building image
+
